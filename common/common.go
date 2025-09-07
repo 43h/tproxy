@@ -3,9 +3,9 @@ package common
 import "net"
 
 const (
-	SourceLocal      = 1
-	SourceUpstream   = 2
-	SourceDownstream = 3
+	MsgSourceLocal      = 1
+	MsgSourceUpstream   = 2
+	MsgSourceDownstream = 3
 )
 
 const (
@@ -24,9 +24,11 @@ type Message struct {
 }
 
 const (
-	Connected = iota + 1
-	Disconnect
-	Disconnected
+	StatusNull = iota
+	StatusListen
+	StatusConnected
+	StatusDisconnect
+	StatusDisconnected
 )
 
 type ConnectionInfo struct {
