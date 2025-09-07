@@ -1,28 +1,37 @@
+//go:build linux
+
 package main
 
 import (
 	. "common"
 	"errors"
-	"github.com/google/uuid"
-	"golang.org/x/sys/unix"
 	"net"
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/google/uuid"
+	"golang.org/x/sys/unix"
 )
 
-var listener net.Listener
+type ServerInfo struct {
+	ServerAddr string
+	Listener   net.Listener
+	status     int
+}
 
-func initServer() bool {
-	tmpListener, err := net.Listen("tcp", ConfigParam.Listen)
+func (serverInfo *ServerInfo) initServer() bool {
+	LOGD("[server] init server")
+	tmpListener, err := net.Listen("tcp", serverInfo.ServerAddr)
 	if err == nil {
 		file, err := tmpListener.(*net.TCPListener).File()
 		if err == nil {
 			fd := int(file.Fd())
 			err = syscall.SetsockoptInt(fd, syscall.SOL_IP, syscall.IP_TRANSPARENT, 1)
 			if err == nil {
-				listener = tmpListener
-				LOGI("[server] start to listen on " + ConfigParam.Listen + "...")
+				serverInfo.Listener = tmpListener
+				serverInfo.status = StatusListen
+				LOGI("[server] listen on " + serverInfo.ServerAddr + "...")
 				return true
 			} else {
 				LOGE("[server] set IP_TRANSPARENT, fail, ", err)
@@ -37,30 +46,32 @@ func initServer() bool {
 	return false
 }
 
-func closeServer() {
-	if listener != nil {
-		err := listener.Close()
+func (serverInfo *ServerInfo) startServer() {
+	LOGD("[server] start to accept new connection ...")
+
+	for {
+		conn, err := serverInfo.Listener.Accept()
 		if err == nil {
-			LOGI("[server] close")
+			go handleNewConnection(conn)
+		} else {
+			LOGE("[server] fail to accept new client, ", err)
+			continue
+		}
+	}
+}
+
+func (serverInfo *ServerInfo) closeServer() {
+	LOGD("[server] close server")
+	serverInfo.status = StatusNull
+	if serverInfo.Listener != nil {
+		err := serverInfo.Listener.Close()
+		if err == nil {
+			LOGI("[server] close, success")
 		} else {
 			LOGE("[server] close, fail, ", err)
 		}
 	} else {
 		LOGI("[server] close(SKIP)")
-	}
-}
-
-func startServer() {
-	LOGI("[server] start to accept new connection ...")
-
-	for {
-		conn, err := listener.Accept()
-		if err == nil {
-			go handleNewConnection(conn)
-		} else {
-			LOGE("[server] fail to accepting, ", err)
-			continue
-		}
 	}
 }
 
@@ -86,7 +97,7 @@ func handleNewConnection(conn net.Conn) {
 	connections[connUuID] = ConnectionInfo{
 		Conn:      conn,
 		Timestamp: time.Now().Unix(),
-		Status:    Connected,
+		Status:    StatusConnected,
 	}
 	connInfo := connections[connUuID]
 	AddEventConnect(connUuID, realDstIp)
@@ -96,7 +107,7 @@ func handleNewConnection(conn net.Conn) {
 		err = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 		if err != nil {
 			LOGE("[server] ", connUuID, " set read deadline, fail, ", err)
-			connInfo.Status = Disconnect
+			connInfo.Status = StatusDisconnect
 		}
 		n, err := conn.Read(buf)
 		if err == nil {
@@ -106,9 +117,9 @@ func handleNewConnection(conn net.Conn) {
 			var netErr net.Error
 			if errors.As(err, &netErr) && netErr.Timeout() {
 				LOGD("[server] ", connUuID, " read timeout")
-				if connInfo.Status == Connected {
+				if connInfo.Status == StatusConnected {
 					continue
-				} else if connInfo.Status == Disconnect {
+				} else if connInfo.Status == StatusDisconnect {
 					LOGI("[server] ", connUuID, " disconnect connection actively")
 				}
 			} else {

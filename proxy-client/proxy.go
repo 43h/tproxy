@@ -1,3 +1,5 @@
+//go:build linux
+
 package main
 
 import (
@@ -35,7 +37,7 @@ func connectToUpstream() bool {
 		return false
 	} else {
 		LOGI("[proxy] connect to ", proxyClient.serverAddr, ", success")
-		proxyClient.status = Connected
+		proxyClient.status = StatusConnected
 		return true
 	}
 }

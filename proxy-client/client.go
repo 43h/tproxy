@@ -1,3 +1,5 @@
+//go:build linux
+
 package main
 
 import (
@@ -15,9 +17,9 @@ func handleEvents() {
 		select {
 		case message := <-messageChannel:
 			switch message.Source {
-			case SourceLocal:
+			case MsgSourceLocal:
 				handleEventLocal(message)
-			case SourceUpstream:
+			case MsgSourceUpstream:
 				handleEventFromUpstream(message)
 			default:
 				LOGE("[client] Unknown message source:", message.Source)
@@ -35,7 +37,7 @@ func handleEventLocal(msg Message) {
 			return
 		}
 
-		msg.Source = SourceDownstream
+		msg.Source = MsgSourceDownstream
 		data, err := json.Marshal(msg)
 		if err != nil {
 			LOGE("[client]", msg.UUID, " marshaling message, fail, ", err)
@@ -51,8 +53,8 @@ func handleEventLocal(msg Message) {
 
 	case MessageTypeDisconnect: //与客户端之间的连接断开
 		connClient := connections[msg.UUID]
-		if connClient.Status == Connected { //主动断开，上报状态
-			msg.Source = SourceUpstream
+		if connClient.Status == StatusConnected { //主动断开，上报状态
+			msg.Source = MsgSourceUpstream
 			data, err := json.Marshal(msg)
 			if err != nil {
 				LOGE(msg.UUID, " marshaling message, fail, ", err)
@@ -71,7 +73,7 @@ func handleEventLocal(msg Message) {
 		delete(connections, msg.UUID)
 
 	case MessageTypeData: //客户端消息转发到上游
-		msg.Source = SourceUpstream
+		msg.Source = MsgSourceUpstream
 		data, err := json.Marshal(msg)
 		if err != nil {
 			LOGE("[client]", msg.UUID, " fail to marshaling message ", err)
@@ -103,7 +105,7 @@ func handleEventFromUpstream(msg Message) {
 			LOGD("[client]", msg.UUID, " client<---downstream, write, success, need: ", msg.Length, " snd: ", length)
 		}
 	} else if msg.MessageType == MessageTypeDisconnect { //与真实服务器断开链接
-		if connection.Status == Connected {
+		if connection.Status == StatusConnected {
 			connection.Status = Disconnect //修改状态后续断开
 		}
 	}
@@ -111,7 +113,7 @@ func handleEventFromUpstream(msg Message) {
 
 func AddEventConnect(uuid string, ipStr string) {
 	message := Message{
-		Source:      SourceLocal,
+		Source:      MsgSourceLocal,
 		MessageType: MessageTypeConnect,
 		UUID:        uuid,
 		IPStr:       ipStr,
@@ -123,7 +125,7 @@ func AddEventConnect(uuid string, ipStr string) {
 
 func AddEventDisconnect(uuid string) {
 	message := Message{
-		Source:      SourceLocal,
+		Source:      MsgSourceLocal,
 		MessageType: MessageTypeDisconnect,
 		UUID:        uuid,
 		IPStr:       "",
@@ -135,7 +137,7 @@ func AddEventDisconnect(uuid string) {
 
 func AddEventMsg(uuid string, buf []byte, len int) {
 	message := Message{
-		Source:      SourceLocal,
+		Source:      MsgSourceLocal,
 		MessageType: MessageTypeData,
 		UUID:        uuid,
 		IPStr:       "",
