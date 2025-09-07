@@ -1,3 +1,5 @@
+//go:build windows
+
 package main
 
 import (
@@ -22,11 +24,6 @@ type ConnectionInfo struct {
 	MsgChannel chan Message //cache upstream message
 	Timestamp  int64
 }
-
-const (
-	Connected = iota + 1
-	Disconnected
-)
 
 var messageChannel = make(chan Message, 10000)
 
@@ -85,13 +82,13 @@ func startServer() {
 			continue
 		}
 
-		if conn != nil || status == Connected {
+		if conn != nil || status == StatusConnected {
 			fmt.Println("Only one client is allowed to connect at a time")
 			tmpConn.Close()
 			continue
 		} else {
 			conn = tmpConn
-			status = Connected
+			status = StatusConnected
 		}
 
 		go rcvServer()
@@ -216,7 +213,7 @@ func AddEventConnect(uuid string, conn net.Conn) {
 	connectionsLock.RUnlock()
 	if exists {
 		connection.Conn = conn
-		connection.Status = Connected
+		connection.Status = StatusConnected
 		connectionsLock.Lock()
 		connections[uuid] = connection
 		connectionsLock.Unlock()
