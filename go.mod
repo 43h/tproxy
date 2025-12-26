@@ -1,3 +1,9 @@
 module tproxy
 
-go 1.23.7
+go 1.25
+
+require (
+	github.com/google/uuid v1.6.0
+	golang.org/x/sys v0.27.0
+	gopkg.in/yaml.v2 v2.4.0
+)

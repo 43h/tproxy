@@ -3,7 +3,7 @@
 package main
 
 import (
-	. "common"
+	. "tproxy/common"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -17,7 +17,7 @@ var listener net.Listener
 var conn net.Conn
 var status int
 
-type ConnectionInfo struct {
+type ServerConnInfo struct {
 	IPStr      string
 	Conn       net.Conn
 	Status     int
@@ -28,7 +28,7 @@ type ConnectionInfo struct {
 var messageChannel = make(chan Message, 10000)
 
 var connectionsLock sync.RWMutex
-var connections = make(map[string]ConnectionInfo)
+var connections = make(map[string]ServerConnInfo)
 
 func initServerTls() bool {
 	LOGI("upstream start with TLS")
@@ -104,7 +104,7 @@ func rcvServer() {
 		if err != nil {
 			LOGE("downstream--->upstream, read length, fail, ", err)
 			conn = nil
-			status = Disconnected
+			status = StatusDisconnected
 			return
 		} else {
 			LOGD("downstream--->upstream, read length, success, length: ", lenData)
@@ -135,10 +135,10 @@ func handleEvents() {
 	for {
 		select {
 		case message := <-messageChannel:
-			switch message.MessageClass {
-			case MessageClassLocal:
+			switch message.Source {
+			case MsgSourceLocal:
 				handleEventLocal(message)
-			case MessageClassUpstream:
+			case MsgSourceUpstream:
 				handleEventUpstream(message)
 			}
 		}
@@ -163,7 +163,7 @@ func handleEventLocal(msg Message) {
 		delete(connections, msg.UUID)
 		connectionsLock.Unlock()
 	case MessageTypeData:
-		msg.MessageClass = MessageClassDownstream
+		msg.Source = MsgSourceDownstream
 		data, err := json.Marshal(msg)
 		if err != nil {
 			LOGE(msg.UUID, " marshaling message, fail, ", err)
@@ -182,10 +182,10 @@ func handleEventLocal(msg Message) {
 func handleEventUpstream(msg Message) {
 	switch msg.MessageType {
 	case MessageTypeConnect: //connect to remote server
-		connection := ConnectionInfo{
+		connection := ServerConnInfo{
 			IPStr:      msg.IPStr,
 			Conn:       nil,
-			Status:     Disconnected,
+			Status:     StatusDisconnected,
 			MsgChannel: make(chan Message, 1000),
 			Timestamp:  time.Now().Unix(),
 		}
@@ -223,7 +223,7 @@ func AddEventConnect(uuid string, conn net.Conn) {
 	}
 
 	message := Message{
-		MessageClass: MessageClassLocal,
+		Source: MsgSourceLocal,
 		MessageType:  MessageTypeConnect,
 		UUID:         uuid,
 		IPStr:        "",
@@ -235,7 +235,7 @@ func AddEventConnect(uuid string, conn net.Conn) {
 
 func AddEventDisconnect(uuid string) {
 	message := Message{
-		MessageClass: MessageClassLocal,
+		Source: MsgSourceLocal,
 		MessageType:  MessageTypeDisconnect,
 		UUID:         uuid,
 		IPStr:        "",
@@ -247,7 +247,7 @@ func AddEventDisconnect(uuid string) {
 
 func AddEventMsg(uuid string, buf []byte, len int) {
 	message := Message{
-		MessageClass: MessageClassLocal,
+		Source: MsgSourceLocal,
 		MessageType:  MessageTypeData,
 		UUID:         uuid,
 		IPStr:        "",

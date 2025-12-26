@@ -3,7 +3,7 @@
 package main
 
 import (
-	. "common"
+	. "tproxy/common"
 
 	"gopkg.in/yaml.v2"
 )

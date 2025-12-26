@@ -3,7 +3,7 @@
 package main
 
 import (
-	. "common"
+	. "tproxy/common"
 	"flag"
 	"fmt"
 )
@@ -11,6 +11,8 @@ import (
 var logDebug = flag.Bool("d", false, "debug mode")
 var version = flag.Bool("v", false, "print version and exit")
 var help = flag.Bool("h", false, "print help and exit")
+
+var serverInfo ServerInfo
 
 func main() {
 	flag.Parse()
@@ -31,15 +33,18 @@ func main() {
 		return
 	}
 
-	if initServer() == false {
+	initProxy()
+	
+	serverInfo.ServerAddr = ConfigParam.Listen
+	if serverInfo.initServer() == false {
 		return
 	}
 
 	go startClient()
-	defer closeClient()
+	defer closeProxy()
 
-	startServer()
-	defer closeServer()
+	serverInfo.startServer()
+	defer serverInfo.closeServer()
 }
 
 func showHelp() {

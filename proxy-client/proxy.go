@@ -3,7 +3,7 @@
 package main
 
 import (
-	. "common"
+	. "tproxy/common"
 	"encoding/json"
 	"errors"
 	"io"
@@ -21,7 +21,7 @@ var proxyClient ProxyClient
 
 func initProxy() {
 	proxyClient.serverAddr = ConfigParam.Server
-	proxyClient.status = Disconnected
+	proxyClient.status = StatusDisconnected
 }
 
 func runProxy() {
@@ -53,13 +53,13 @@ func closeProxy() {
 	} else {
 		LOGI("[proxy] close, success")
 	}
-	proxyClient.status = Disconnected
+	proxyClient.status = StatusDisconnected
 }
 
 func startClient() {
 	go handleEvents()
 	for {
-		for status == Disconnected {
+		for proxyClient.status == StatusDisconnected {
 			if connectToUpstream() == true {
 				break
 			} else {
@@ -81,7 +81,7 @@ func sndToUpstream(conn net.Conn, data []byte) (n int, err error) {
 	if err == nil {
 		length, err := conn.Write(data) //发送数据
 		if err != nil {
-			closeClient()
+			closeProxy()
 			LOGE("downstream--->upstream, write, fail, ", err)
 			return 0, err
 		} else {
@@ -97,9 +97,9 @@ func rcvFromUpstream() {
 	LOGI("[client] start to rcv data")
 	for {
 		lengthBuf := make([]byte, 2) //读取长度部分
-		length, err := io.ReadFull(conn, lengthBuf)
+		length, err := io.ReadFull(proxyClient.conn, lengthBuf)
 		if err != nil {
-			closeClient()
+			closeProxy()
 			LOGE("[client] downstream<---upstream, read length, fail, ", err)
 			return
 		} else {
@@ -108,10 +108,10 @@ func rcvFromUpstream() {
 
 		length = int(lengthBuf[0])<<8 + int(lengthBuf[1])
 		dataBuf := make([]byte, length)
-		lenData, err := io.ReadFull(conn, dataBuf)
+		lenData, err := io.ReadFull(proxyClient.conn, dataBuf)
 		if err != nil {
 			LOGE("[client] downstream<---upstream, read data, fail, ", err)
-			closeClient()
+			closeProxy()
 			return
 		} else {
 			LOGD("[client] downstream<---upstream, read data, success, need: ", length, ", read: ", lenData)

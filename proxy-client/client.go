@@ -3,7 +3,7 @@
 package main
 
 import (
-	. "common"
+	. "tproxy/common"
 	"encoding/json"
 )
 
@@ -32,8 +32,8 @@ func handleEventLocal(msg Message) {
 	switch msg.MessageType {
 	case MessageTypeConnect:
 		connClient := connections[msg.UUID]
-		if conn == nil { //若与上游断开链接，则关闭与客户端链接
-			connClient.Status = Disconnect
+		if proxyClient.conn == nil { //若与上游断开链接，则关闭与客户端链接
+			connClient.Status = StatusDisconnect
 			return
 		}
 
@@ -43,7 +43,7 @@ func handleEventLocal(msg Message) {
 			LOGE("[client]", msg.UUID, " marshaling message, fail, ", err)
 			return
 		}
-		_, err = sndToUpstream(conn, data)
+		_, err = sndToUpstream(proxyClient.conn, data)
 		if err != nil {
 			LOGE("[client]", msg.UUID, " downstream--->upstream, write, event-connect, fail, ", err)
 			return
@@ -60,7 +60,7 @@ func handleEventLocal(msg Message) {
 				LOGE(msg.UUID, " marshaling message, fail, ", err)
 				return
 			}
-			_, err = sndToUpstream(conn, data)
+			_, err = sndToUpstream(proxyClient.conn, data)
 			if err != nil {
 				LOGE("[client]", msg.UUID, " downstream--->upstream, write, event-disconnect, fail, ", err)
 				return
@@ -69,7 +69,7 @@ func handleEventLocal(msg Message) {
 			}
 		} //else if connClient.Status == Disconnect 被动断开，无需上报
 
-		connClient.Status = Disconnected
+		connClient.Status = StatusDisconnected
 		delete(connections, msg.UUID)
 
 	case MessageTypeData: //客户端消息转发到上游
@@ -79,7 +79,7 @@ func handleEventLocal(msg Message) {
 			LOGE("[client]", msg.UUID, " fail to marshaling message ", err)
 			return
 		}
-		_, err = sndToUpstream(conn, data)
+		_, err = sndToUpstream(proxyClient.conn, data)
 		if err != nil {
 			LOGE("[client]", msg.UUID, " downstream--->upstream, write, event-data, fail, ", err)
 			return
@@ -106,7 +106,7 @@ func handleEventFromUpstream(msg Message) {
 		}
 	} else if msg.MessageType == MessageTypeDisconnect { //与真实服务器断开链接
 		if connection.Status == StatusConnected {
-			connection.Status = Disconnect //修改状态后续断开
+			connection.Status = StatusDisconnect //修改状态后续断开
 		}
 	}
 }
