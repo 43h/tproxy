@@ -147,7 +147,7 @@ func (w *MessageWriter) WriteMessage(msg *Message) error {
 }
 
 // EmitConnect 发送连接事件
-func (mb *MessageBus) EmitConnect(uuid string, ipStr string, conn net.Conn) {
+func (mb *MessageBus) AddConnectMsg(uuid string, ipStr string, conn net.Conn) {
 	msg := Message{
 		Header: MessageHeader{
 			Source:  MsgSourceLocal,
@@ -160,7 +160,7 @@ func (mb *MessageBus) EmitConnect(uuid string, ipStr string, conn net.Conn) {
 	mb.msgChan <- msg
 }
 
-func (mb *MessageBus) EmitDisconnect(uuid string) {
+func (mb *MessageBus) AddDisconnectMsg(uuid string) {
 	msg := Message{
 		Header: MessageHeader{
 			Source:  MsgSourceLocal,
@@ -172,7 +172,7 @@ func (mb *MessageBus) EmitDisconnect(uuid string) {
 	mb.msgChan <- msg
 }
 
-func (mb *MessageBus) EmitData(uuid string, data []byte, length int) {
+func (mb *MessageBus) AddDataMsg(uuid string, data []byte, length int) {
 	msg := Message{
 		Header: MessageHeader{
 			Source:  MsgSourceLocal,

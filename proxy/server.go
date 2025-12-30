@@ -16,51 +16,48 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type TProxyServer struct {
+type ProxyServer struct {
 	addr     string
 	connMgr  *ConnectionManager
 	msgBus   *MessageBus
+	bufPool  *BufferPool
 	listener net.Listener
 	status   int
 }
 
-func NewTProxyServer(addr string, connMgr *ConnectionManager, msgBus *MessageBus) *TProxyServer {
-	return &TProxyServer{
+func NewProxyServer(addr string, connMgr *ConnectionManager, msgBus *MessageBus, bufPool *BufferPool) *ProxyServer {
+	return &ProxyServer{
 		addr:    addr,
 		connMgr: connMgr,
 		msgBus:  msgBus,
+		bufPool: bufPool,
 		status:  StatusNull,
 	}
 }
 
-func (s *TProxyServer) Start(ctx context.Context) error {
-	LOGI("[tproxy] Initializing server on: ", s.addr)
+func (ps *ProxyServer) Start(ctx context.Context) error {
+	LOGI("[proxy] Initializing server on: ", ps.addr)
 
-	// 解析地址
-	tcpAddr, err := net.ResolveTCPAddr("tcp", s.addr)
+	tcpAddr, err := net.ResolveTCPAddr("tcp", ps.addr)
 	if err != nil {
 		return fmt.Errorf("resolve address failed: %w", err)
 	}
 
-	// 创建 socket
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
 	if err != nil {
 		return fmt.Errorf("create socket failed: %w", err)
 	}
 
-	// 设置 SO_REUSEADDR
 	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1); err != nil {
 		syscall.Close(fd)
 		return fmt.Errorf("set SO_REUSEADDR failed: %w", err)
 	}
 
-	// 设置 IP_TRANSPARENT
 	if err := syscall.SetsockoptInt(fd, syscall.SOL_IP, syscall.IP_TRANSPARENT, 1); err != nil {
 		syscall.Close(fd)
 		return fmt.Errorf("set IP_TRANSPARENT failed: %w", err)
 	}
 
-	// Bind
 	sockaddr := &syscall.SockaddrInet4{
 		Port: tcpAddr.Port,
 	}
@@ -70,14 +67,12 @@ func (s *TProxyServer) Start(ctx context.Context) error {
 		return fmt.Errorf("bind failed: %w", err)
 	}
 
-	// Listen
 	if err := syscall.Listen(fd, syscall.SOMAXCONN); err != nil {
 		syscall.Close(fd)
 		return fmt.Errorf("listen failed: %w", err)
 	}
 
-	// 将文件描述ost.Listener
-	file := os.NewFile(uintptr(fd), "tproxy-listener")
+	file := os.NewFile(uintptr(fd), "proxy-listener")
 	tmpListener, err := net.FileListener(file)
 	file.Close()
 	if err != nil {
@@ -85,51 +80,45 @@ func (s *TProxyServer) Start(ctx context.Context) error {
 		return fmt.Errorf("create listener failed: %w", err)
 	}
 
-	s.listener = tmpListener
-	s.status = StatusListen
+	ps.listener = tmpListener
+	ps.status = StatusListen
 
-	LOGI("[tproxy] Server listening on ", s.addr)
-	LOGI("[tproxy] IP_TRANSPARENT enabled")
+	LOGI("[proxy] Server listening on ", ps.addr)
+	LOGI("[proxy] IP_TRANSPARENT enabled")
 
-	// 接受连接循环
-	return s.acceptLoop(ctx)
+	return ps.acceptLoop(ctx)
 }
 
-// acceptLoop 接受连接循环
-func (s *TProxyServer) acceptLoop(ctx context.Context) error {
+func (ps *ProxyServer) acceptLoop(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			conn, err := s.listener.Accept()
+			conn, err := ps.listener.Accept()
 			if err != nil {
-				LOGE("[tproxy] Accept failed: ", err)
+				LOGE("[proxy] Accept failed: ", err)
 				continue
 			}
 
-			// 每个连接在独立的goroutine中处理
-			go s.handleConnection(conn)
+			go ps.handleConnection(conn)
 		}
 	}
 }
 
-// handleConnection 处理新连接
-func (s *TProxyServer) handleConnection(conn net.Conn) {
+func (ps *ProxyServer) handleConnection(conn net.Conn) {
 	origDst, err := getOriginalDst(conn.(*net.TCPConn))
 	if err != nil {
-		LOGE("[tproxy] Get original destination failed: ", err)
+		LOGE("[proxy] Get original destination failed: ", err)
 		conn.Close()
 		return
 	}
 
-	// 生成连接UUID
 	connUUID := uuid.New().String()
 	clientAddr := conn.RemoteAddr().String()
 
-	LOGI("[tproxy] New connection: ", connUUID, " from ", clientAddr, " to ", origDst)
+	LOGI("[proxy] New connection: ", connUUID, " from ", clientAddr, " to ", origDst)
 
-	// 创建连接信息
 	connInfo := &ConnInfo{
 		UUID:   connUUID,
 		IPStr:  origDst,
@@ -137,23 +126,20 @@ func (s *TProxyServer) handleConnection(conn net.Conn) {
 		Status: StatusConnected,
 	}
 
-	// 添加到连接管理器
-	s.connMgr.Add(connUUID, connInfo)
+	ps.connMgr.Add(connUUID, connInfo)
 
-	// 发送连接事件到上游
-	s.msgBus.EmitConnect(connUUID, origDst, nil)
+	ps.msgBus.AddConnectMsg(connUUID, origDst, nil)
 
-	// 启动数据读取循环
-	s.readLoop(connUUID, conn)
+	ps.readLoop(connUUID, conn)
 }
 
 // readLoop 读取连接数据循环（零拷贝优化）
-func (s *TProxyServer) readLoop(uuid string, conn net.Conn) {
+func (ps *ProxyServer) readLoop(uuid string, conn net.Conn) {
 	defer func() {
 		// 连接关闭时发送断开事件
-		s.msgBus.EmitDisconnect(uuid)
-		s.connMgr.Delete(uuid)
-		LOGI("[tproxy] Connection closed: ", uuid)
+		ps.msgBus.EmitDisconnect(uuid)
+		ps.connMgr.Delete(uuid)
+		LOGI("[proxy] Connection closed: ", uuid)
 	}()
 
 	bufPool := DefaultBufferPool
@@ -165,7 +151,7 @@ func (s *TProxyServer) readLoop(uuid string, conn net.Conn) {
 
 		if err != nil {
 			bufPool.Put(buf)
-			LOGD("[tproxy] Read error: ", uuid, " ", err)
+			LOGD("[proxy] Read error: ", uuid, " ", err)
 			return
 		}
 
@@ -174,8 +160,8 @@ func (s *TProxyServer) readLoop(uuid string, conn net.Conn) {
 			data := buf[:n]
 
 			// 发送数据事件（带释放回调）
-			s.msgBus.EmitData(uuid, data, n)
-			LOGD("[tproxy] Data read: ", uuid, " ", n, " bytes")
+			ps.msgBus.EmitData(uuid, data, n)
+			LOGD("[proxy] Data read: ", uuid, " ", n, " bytes")
 		} else {
 			bufPool.Put(buf)
 		}
@@ -212,17 +198,17 @@ func getOriginalDst(conn *net.TCPConn) (string, error) {
 	return "", errors.New("unknown address type")
 }
 
-func (s *TProxyServer) Close() {
-	LOGI("[tproxy] Closing server")
+func (ps *ProxyServer) Close() {
+	LOGI("[proxy] Closing server")
 
-	s.status = StatusNull
+	ps.status = StatusNull
 
-	if s.listener != nil {
-		if err := s.listener.Close(); err != nil {
-			LOGE("[tproxy] Close listener failed: ", err)
+	if ps.listener != nil {
+		if err := ps.listener.Close(); err != nil {
+			LOGE("[proxy] Close listener failed: ", err)
 		} else {
-			LOGI("[tproxy] Listener closed")
+			LOGI("[proxy] Listener closed")
 		}
-		s.listener = nil
+		ps.listener = nil
 	}
 }

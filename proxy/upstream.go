@@ -7,28 +7,29 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 	. "tproxy/common"
 )
 
-// UpstreamClient 上游连接客户端（连接到 relay 服务器）
 type UpstreamClient struct {
 	serverAddr string
 	connMgr    *ConnectionManager
-	eventBus   *MessageBus
-
-	mu     sync.RWMutex
-	conn   net.Conn
-	reader *MessageReader
-	writer *MessageWriter
-	status int
+	msgBus     *MessageBus
+	bufPool    *BufferPool
+	mu         sync.RWMutex
+	conn       net.Conn
+	reader     *MessageReader
+	writer     *MessageWriter
+	status     int
 }
 
 // NewUpstreamClient 创建上游客户端
-func NewUpstreamClient(serverAddr string, connMgr *ConnectionManager, eventBus *MessageBus) *UpstreamClient {
+func NewUpstreamClient(serverAddr string, connMgr *ConnectionManager, msgBus *MessageBus, bufPool *BufferPool) *UpstreamClient {
 	return &UpstreamClient{
 		serverAddr: serverAddr,
 		connMgr:    connMgr,
-		eventBus:   eventBus,
+		msgBus:     msgBus,
+		bufPool:    bufPool,
 		status:     StatusDisconnected,
 	}
 }
@@ -43,7 +44,8 @@ func (c *UpstreamClient) Start(ctx context.Context) error {
 			return ctx.Err()
 		default:
 			if err := c.connect(); err != nil {
-				LOGE("[upstream] Connect failed: ", err)
+				time.Sleep(time.Second * 3)
+				LOGI("[upstream] Connect failed: ", err)
 				continue
 			}
 
@@ -76,7 +78,6 @@ func (c *UpstreamClient) connect() error {
 	return nil
 }
 
-// receiveLoop 接收消息循环
 func (c *UpstreamClient) receiveLoop(ctx context.Context) error {
 	for {
 		select {
@@ -96,18 +97,13 @@ func (c *UpstreamClient) receiveLoop(ctx context.Context) error {
 				return fmt.Errorf("read message failed: %w", err)
 			}
 
-			// 设置消息来源为上游
-			msg.Source = MsgSourceRelay
-
-			// 发送到事件总线
-			c.eventBus.SendMessage(*msg)
-
-			LOGD("[upstream] Received message: ", msg.MsgType, " UUID: ", msg.UUID)
+			LOGD("[upstream] Received message: ", msg.Header.MsgType, " UUID: ", msg.Header.UUID)
+			msg.Header.Source = MsgSourceRelay
+			c.msgBus.SendMessage(*msg)
 		}
 	}
 }
 
-// SendMessage 发送消息到上游服务器
 func (c *UpstreamClient) SendMessage(msg *Message) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -117,13 +113,13 @@ func (c *UpstreamClient) SendMessage(msg *Message) error {
 	}
 
 	// 设置消息来源
-	msg.Source = MsgSourceRelay
+	msg.Header.Source = MsgSourceProxy
 
 	if err := c.writer.WriteMessage(msg); err != nil {
 		return fmt.Errorf("write message failed: %w", err)
 	}
 
-	LOGD("[upstream] Sent message: ", msg.MsgType, " UUID: ", msg.UUID)
+	LOGD("[upstream] Sent message: ", msg.Header.MsgType, " UUID: ", msg.Header.UUID)
 	return nil
 }
 

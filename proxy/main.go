@@ -36,7 +36,7 @@ func main() {
 	}
 
 	// 创建应用
-	app := NewTProxyApp(&ConfigParam)
+	app := NewProxyApp(&ConfigParam)
 
 	// 设置信号处理
 	sigChan := make(chan os.Signal, 1)
