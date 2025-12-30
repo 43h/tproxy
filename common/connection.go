@@ -35,12 +35,10 @@ func NewConnectionManager() *ConnectionManager {
 	}
 }
 
-// Add 添加连接，如果连接已存在，会清理旧连接资源后再添加新连接
 func (cm *ConnectionManager) Add(uuid string, info *ConnInfo) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	// 如果连接已存在，先清理旧连接资源
 	if oldConn, exists := cm.connections[uuid]; exists {
 		LOGI("Connection UUID conflict, cleaning old connection: ", uuid)
 		if oldConn.Conn != nil {

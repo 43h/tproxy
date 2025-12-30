@@ -32,17 +32,8 @@ type MessageWriter struct {
 	mu      sync.Mutex
 	bufPool *BufferPool
 	encoder *gob.Encoder
-	encBuf  []byte // 用于编码header的临时缓冲区
+	encBuf  []byte
 }
-
-var (
-	// 用于编码的buffer pool
-	headerBufPool = sync.Pool{
-		New: func() interface{} {
-			return make([]byte, 0, 256) // header通常不会太大
-		},
-	}
-)
 
 // NewMessageReader 创建消息读取器
 func NewMessageReader(conn io.Reader) *MessageReader {
@@ -155,41 +146,6 @@ func (w *MessageWriter) WriteMessage(msg *Message) error {
 	return nil
 }
 
-// bytesReader 简单的bytes reader（避免import bytes）
-type bytesReader struct {
-	data []byte
-	pos  int
-}
-
-func newBytesReader(data []byte) *bytesReader {
-	return &bytesReader{data: data, pos: 0}
-}
-
-func (r *bytesReader) Read(p []byte) (n int, err error) {
-	if r.pos >= len(r.data) {
-		return 0, io.EOF
-	}
-	n = copy(p, r.data[r.pos:])
-	r.pos += n
-	return n, nil
-}
-
-// bytesWriter 简单的bytes writer
-type bytesWriter struct {
-	buf *[]byte
-}
-
-func newBytesWriter(buf *[]byte) *bytesWriter {
-	return &bytesWriter{buf: buf}
-}
-
-func (w *bytesWriter) Write(p []byte) (n int, err error) {
-	*w.buf = append(*w.buf, p...)
-	return len(p), nil
-}
-
-// Emit* 方法 - 为MessageBus添加Emit接口（支持零拷贝优化）
-
 // EmitConnect 发送连接事件
 func (mb *MessageBus) EmitConnect(uuid string, ipStr string, conn net.Conn) {
 	msg := Message{
@@ -200,18 +156,10 @@ func (mb *MessageBus) EmitConnect(uuid string, ipStr string, conn net.Conn) {
 			IPStr:   ipStr,
 			Len:     0,
 		},
-		Source:      MsgSourceLocal,
-		MessageType: MsgTypeConnect,
-		MsgType:     MsgTypeConnect,
-		UUID:        uuid,
-		IPStr:       ipStr,
-		Length:      0,
-		Len:         0,
 	}
 	mb.msgChan <- msg
 }
 
-// EmitDisconnect 发送断开连接事件
 func (mb *MessageBus) EmitDisconnect(uuid string) {
 	msg := Message{
 		Header: MessageHeader{
@@ -220,23 +168,11 @@ func (mb *MessageBus) EmitDisconnect(uuid string) {
 			UUID:    uuid,
 			Len:     0,
 		},
-		Source:      MsgSourceLocal,
-		MessageType: MsgTypeDisconnect,
-		MsgType:     MsgTypeDisconnect,
-		UUID:        uuid,
-		Length:      0,
-		Len:         0,
 	}
 	mb.msgChan <- msg
 }
 
-// EmitData 发送数据事件（带自动释放）
 func (mb *MessageBus) EmitData(uuid string, data []byte, length int) {
-	bufPool := DefaultBufferPool
-	releaseFunc := func() {
-		bufPool.Put(data)
-	}
-
 	msg := Message{
 		Header: MessageHeader{
 			Source:  MsgSourceLocal,
@@ -244,35 +180,7 @@ func (mb *MessageBus) EmitData(uuid string, data []byte, length int) {
 			UUID:    uuid,
 			Len:     length,
 		},
-		Source:      MsgSourceLocal,
-		MessageType: MsgTypeData,
-		MsgType:     MsgTypeData,
-		UUID:        uuid,
-		Length:      length,
-		Len:         length,
-		Data:        data[:length],
-		ReleaseFunc: releaseFunc,
-	}
-	mb.msgChan <- msg
-}
-
-// EmitDataWithRelease 发送数据事件（手动指定释放函数）
-func (mb *MessageBus) EmitDataWithRelease(uuid string, data []byte, length int, releaseFunc func()) {
-	msg := Message{
-		Header: MessageHeader{
-			Source:  MsgSourceLocal,
-			MsgType: MsgTypeData,
-			UUID:    uuid,
-			Len:     length,
-		},
-		Source:      MsgSourceLocal,
-		MessageType: MsgTypeData,
-		MsgType:     MsgTypeData,
-		UUID:        uuid,
-		Length:      length,
-		Len:         length,
-		Data:        data[:length],
-		ReleaseFunc: releaseFunc,
+		Data: data[:length],
 	}
 	mb.msgChan <- msg
 }
