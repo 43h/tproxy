@@ -1,21 +1,18 @@
 package common
 
 import (
-	"io/ioutil"
 	"os"
 )
 
-const confFile = "conf.yaml"
-
-func LoadConf() []byte {
-	if _, err := os.Stat(confFile); os.IsNotExist(err) {
-		LOGE("conf.yaml does not exist")
+func LoadConf(configFile string) []byte {
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		LOGE(configFile, " does not exist")
 		return nil
 	}
 
-	data, err := ioutil.ReadFile(confFile)
+	data, err := os.ReadFile(configFile)
 	if err != nil {
-		LOGE("fail to load ", confFile, err)
+		LOGE("fail to load ", configFile, err)
 		return nil
 	}
 	return data

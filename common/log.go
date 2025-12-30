@@ -26,7 +26,7 @@ func LOGD(v ...interface{}) {
 
 func LOGI(v ...interface{}) {
 	if logLevel <= INFO {
-		log.Println("[ INFO] ", v)
+		log.Println("[  INFO] ", v)
 	}
 }
 
@@ -49,10 +49,10 @@ func InitLog(debug bool) bool {
 	if err != nil {
 		fmt.Println("fail to open file, ", err)
 		return false
-	} else {
-		log.SetOutput(logHandle)
-		log.SetFlags(log.Lshortfile | log.LstdFlags)
 	}
+
+	log.SetOutput(logHandle)
+	log.SetFlags(log.Lshortfile | log.LstdFlags)
 	return true
 }
 

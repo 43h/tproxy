@@ -1,5 +1,5 @@
 package common
 
 func ShowVersion() string {
-	return "V0.1.1-20250907"
+	return "V0.2.1-20260101"
 }
