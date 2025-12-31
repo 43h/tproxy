@@ -24,7 +24,7 @@ build: client server
 client:
 	@echo "Building Linux $(CLIENT_BINARY)..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=linux GOARCH=amd64 go build -gcflags "all=-N -l" -o $(BUILD_DIR)/$(CLIENT_BINARY) ./tproxy
+	GOOS=linux GOARCH=amd64 go build -gcflags "all=-N -l" -o $(BUILD_DIR)/$(CLIENT_BINARY) ./proxy
 	@echo "$(CLIENT_BINARY) built successfully"
 
 # Build Windows server
@@ -38,7 +38,7 @@ server:
 debug:
 	@echo "Building with debug symbols..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=linux GOARCH=amd64 go build $(DEBUG_FLAGS) -o $(BUILD_DIR)/$(CLIENT_BINARY)-debug ./tproxy
+	GOOS=linux GOARCH=amd64 go build $(DEBUG_FLAGS) -o $(BUILD_DIR)/$(CLIENT_BINARY)-debug ./proxy
 	GOOS=windows GOARCH=amd64 go build $(DEBUG_FLAGS) -o $(BUILD_DIR)/$(SERVER_BINARY)-debug.exe ./relay
 	@echo "Debug builds completed"
 
@@ -46,7 +46,7 @@ debug:
 linux-all:
 	@echo "Building both client and server for Linux..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=linux GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(CLIENT_BINARY)-linux ./tproxy
+	GOOS=linux GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(CLIENT_BINARY)-linux ./proxy
 	GOOS=linux GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(SERVER_BINARY)-linux ./relay
 	@echo "Linux builds completed"
 
@@ -54,7 +54,7 @@ linux-all:
 windows-all:
 	@echo "Building both client and server for Windows..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=windows GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(CLIENT_BINARY)-windows.exe ./tproxy
+	GOOS=windows GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(CLIENT_BINARY)-windows.exe ./proxy
 	GOOS=windows GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(SERVER_BINARY)-windows.exe ./relay
 	@echo "Windows builds completed"
 
