@@ -21,7 +21,7 @@ type Message struct {
 const (
 	MsgSourceLocal = iota + 1
 	MsgSourceRelay
-	MsgSourceTproxy
+	MsgSourceProxy
 )
 
 const (

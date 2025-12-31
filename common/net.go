@@ -16,13 +16,13 @@ type MessageWriter struct {
 	conn io.Writer
 }
 
-func NewMessageReader(conn io.Reader, bufPool *BufferPool) *MessageReader {
+func NewMessageReader(conn io.Reader) *MessageReader {
 	return &MessageReader{
 		conn: conn,
 	}
 }
 
-func NewMessageWriter(conn io.Writer, bufPool *BufferPool) *MessageWriter {
+func NewMessageWriter(conn io.Writer) *MessageWriter {
 	return &MessageWriter{
 		conn: conn,
 	}
