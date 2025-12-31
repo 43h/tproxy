@@ -3,18 +3,18 @@
 package main
 
 import (
-	. "tproxy/common"
 	"net"
+	. "tproxy/common"
 )
 
 // connectToBackend 连接到真实服务器
-func connectToBackend(uuid string, serverAddr string, eventBus *EventBus, connMgr *ConnectionManager) {
+func connectToBackend(uuid string, serverAddr string, eventBus *MessageBus, connMgr *ConnectionManager) {
 	LOGI("[backend] Connecting to: ", uuid, " ", serverAddr)
 
 	conn, err := net.Dial("tcp", serverAddr)
 	if err != nil {
 		LOGE("[backend] Connect failed: ", uuid, " ", serverAddr, " ", err)
-		eventBus.EmitDisconnect(uuid)
+		eventBus.AddDisconnectMsg(uuid)
 		return
 	}
 
@@ -27,7 +27,7 @@ func connectToBackend(uuid string, serverAddr string, eventBus *EventBus, connMg
 	})
 
 	// 发送连接成功事件
-	eventBus.EmitConnect(uuid, serverAddr, nil)
+	eventBus.AddConnectMsg(uuid, serverAddr, nil)
 
 	// 获取连接信息
 	connInfo, exists := connMgr.Get(uuid)
@@ -43,9 +43,9 @@ func connectToBackend(uuid string, serverAddr string, eventBus *EventBus, connMg
 }
 
 // handleBackendReceive 接收来自真实服务器的数据（零拷贝优化）
-func handleBackendReceive(uuid string, conn net.Conn, eventBus *EventBus) {
+func handleBackendReceive(uuid string, conn net.Conn, eventBus *MessageBus) {
 	defer func() {
-		eventBus.EmitDisconnect(uuid)
+		eventBus.AddDisconnectMsg(uuid)
 		conn.Close()
 		LOGI("[backend] Receive loop ended: ", uuid)
 	}()
@@ -88,11 +88,8 @@ func handleBackendSend(uuid string, conn net.Conn, msgChannel chan Message) {
 
 	for msg := range msgChannel {
 		// 确保消息处理后释放buffer
-		if msg.ReleaseFunc != nil {
-			defer msg.ReleaseFunc()
-		}
 
-		if msg.MessageType != MsgTypeData {
+		if msg.Header.MsgType != MsgTypeData {
 			continue
 		}
 
@@ -102,6 +99,6 @@ func handleBackendSend(uuid string, conn net.Conn, msgChannel chan Message) {
 			return
 		}
 
-		LOGD("[backend] Data sent: ", uuid, " need: ", msg.Length, " sent: ", n)
+		LOGD("[backend] Data sent: ", uuid, " need: ", msg.Header.Len, " sent: ", n)
 	}
 }

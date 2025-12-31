@@ -8,16 +8,14 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-const confFile = "conf.yaml"
-
 type Config struct {
 	Listen string `yaml:"listen"`
 }
 
 var ConfigParam = Config{""}
 
-func initConf() bool {
-	data := LoadConf()
+func initConf(configFile string) bool {
+	data := LoadConf(configFile)
 	if data == nil {
 		return false
 	}
@@ -26,8 +24,8 @@ func initConf() bool {
 	if err != nil {
 		LOGE(err)
 		return false
-	} else {
-		LOGI("config: ", ConfigParam)
-		return true
 	}
+
+	LOGI("config: ", ConfigParam)
+	return true
 }

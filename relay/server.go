@@ -14,7 +14,7 @@ import (
 type RelayServer struct {
 	addr     string
 	connMgr  *ConnectionManager
-	eventBus *EventBus
+	eventBus *MessageBus
 	listener net.Listener
 
 	// 下游连接（tproxy客户端）
@@ -23,10 +23,13 @@ type RelayServer struct {
 	downstreamReader *MessageReader
 	downstreamWriter *MessageWriter
 	downstreamStatus int
+	sendChan         chan Message // 发送消息通道
+	ctx              context.Context
+	cancelSend       context.CancelFunc
 }
 
 // NewRelayServer 创建中继服务器
-func NewRelayServer(addr string, connMgr *ConnectionManager, eventBus *EventBus) *RelayServer {
+func NewRelayServer(addr string, connMgr *ConnectionManager, eventBus *MessageBus) *RelayServer {
 	return &RelayServer{
 		addr:             addr,
 		connMgr:          connMgr,
@@ -74,25 +77,38 @@ func (s *RelayServer) acceptLoop(ctx context.Context) error {
 				continue
 			}
 
+			// 创建发送goroutine的context
+			sendCtx, cancelSend := context.WithCancel(ctx)
+
 			// 接受新连接
 			s.downstreamConn = conn
 			s.downstreamReader = NewMessageReader(conn)
 			s.downstreamWriter = NewMessageWriter(conn)
 			s.downstreamStatus = StatusConnected
+			s.sendChan = make(chan Message, 10000)
+			s.ctx = sendCtx
+			s.cancelSend = cancelSend
 			s.mu.Unlock()
 
 			LOGI("[relay] Downstream client connected from: ", conn.RemoteAddr())
 
-			// 启动接收循环
+			// 启动接收和发送循环
 			go s.receiveLoop(ctx, conn)
+			go s.sendLoop(sendCtx, conn)
 		}
 	}
-}
-
-// receiveLoop 接收来自下游（tproxy）的消息
-func (s *RelayServer) receiveLoop(ctx context.Context, conn net.Conn) {
-	defer func() {
-		s.mu.Lock()
+		// 取消发送goroutine
+		if s.cancelSend != nil {
+			s.cancelSend()
+			s.cancelSend = nil
+		}
+		
+		// 关闭发送通道
+		if s.sendChan != nil {
+			close(s.sendChan)
+			s.sendChan = nil
+		}
+		
 		s.downstreamConn = nil
 		s.downstreamReader = nil
 		s.downstreamWriter = nil
@@ -127,6 +143,63 @@ func (s *RelayServer) receiveLoop(ctx context.Context, conn net.Conn) {
 
 			// 发送到事件总线
 			s.eventBus.SendMessage(*msg)
+通过消息通道
+func (s *RelayServer) SendToDownstream(msg *Message) error {
+	s.mu.RLock()
+	status := s.downstreamStatus
+	sendChan := s.sendChan
+	s.mu.RUnlock()
+
+	if status != StatusConnected || sendChan == nil {
+		return fmt.Errorf("downstream not connected")
+	}
+
+	// 发送到通道
+	select {
+	case sendChan <- *msg:
+		LOGD("[relay] Message queued for downstream: ", msg.MessageType, " UUID: ", msg.UUID)
+		return nil
+	default:
+		return fmt.Errorf("send channel full")
+	}:= <-s.sendChan:
+			// 确保消息处理后释放buffer
+			if msg.ReleaseFunc != nil {
+				defer msg.ReleaseFunc()
+			}
+
+	// 取消发送goroutine
+	if s.cancelSend != nil {
+		s.cancelSend()
+		s.cancelSend = nil
+	}
+	
+	// 关闭发送通道
+	if s.sendChan != nil {
+		close(s.sendChan)
+		s.sendChan = nil
+	}
+	
+	
+			s.mu.RLock()
+			writer := s.downstreamWriter
+			s.mu.RUnlock()
+
+			if writer == nil {
+				LOGE("[relay] Writer is nil")
+				continue
+			}
+
+			if err := writer.WriteMessage(&msg); err != nil {
+				LOGE("[relay] Write message failed: ", err)
+				return
+			}
+
+			LOGD("[relay] Sent message to
+			// 设置消息来源为上游
+			msg.Source = MsgSourceRelay
+
+			// 发送到事件总线
+			s.eventBus.SendMessage(*msg)
 
 			LOGD("[relay] Received message from downstream: ", msg.MessageType, " UUID: ", msg.UUID)
 		}
@@ -146,7 +219,7 @@ func (s *RelayServer) SendToDownstream(msg *Message) error {
 		return fmt.Errorf("write message failed: %w", err)
 	}
 
-	LOGD("[relay] Sent message to downstream: ", msg.MessageType, " UUID: ", msg.UUID)
+	LOGD("[relay] Sent message to downstream: ", msg.Header.MsgType, " UUID: ", msg.Header.UUID)
 	return nil
 }
 

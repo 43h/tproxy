@@ -3,19 +3,21 @@
 package main
 
 import (
-	. "tproxy/common"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	. "tproxy/common"
 )
 
 var logDebug = flag.Bool("d", false, "debug mode")
 var version = flag.Bool("v", false, "print version and exit")
+var configFile = flag.String("c", "conf.yaml", "configuration file")
 
 func main() {
 	flag.Parse()
+
 	if *version {
 		fmt.Println(ShowVersion())
 		return
@@ -26,24 +28,21 @@ func main() {
 	}
 	defer CloseLog()
 
-	if !initConf() {
+	if !initConf(*configFile) {
 		return
 	}
 
-	// 创建应用
 	app := NewRelayApp(&ConfigParam)
 
-	// 设置信号处理
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	// 在goroutine中运行应用
 	errChan := make(chan error, 1)
 	go func() {
 		errChan <- app.Run()
 	}()
 
-	// 等待信号或错误
 	select {
 	case err := <-errChan:
 		if err != nil {
@@ -53,6 +52,5 @@ func main() {
 		LOGI("Received signal: ", sig)
 	}
 
-	// 优雅关闭
 	app.Shutdown()
 }

@@ -3,37 +3,34 @@
 package main
 
 import (
-	. "tproxy/common"
 	"context"
+	. "tproxy/common"
 )
 
-// RelayApp 中继服务器应用
 type RelayApp struct {
-	config   *Config
-	connMgr  *ConnectionManager
-	eventBus *EventBus
-	server   *RelayServer
-	ctx      context.Context
-	cancel   context.CancelFunc
+	config  *Config
+	connMgr *ConnectionManager
+	msgBus  *MessageBus
+	server  *RelayServer
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
-// NewRelayApp 创建应用
 func NewRelayApp(config *Config) *RelayApp {
 	connMgr := NewConnectionManager()
-	eventBus := NewEventBus(10000)
+	msgBus := NewMessageBus(10000)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &RelayApp{
-		config:   config,
-		connMgr:  connMgr,
-		eventBus: eventBus,
-		server:   NewRelayServer(config.Listen, connMgr, eventBus),
-		ctx:      ctx,
-		cancel:   cancel,
+		config:  config,
+		connMgr: connMgr,
+		msgBus:  msgBus,
+		server:  NewRelayServer(config.Listen, connMgr, msgBus),
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 }
 
-// Run 运行应用
 func (app *RelayApp) Run() error {
 	LOGI("=== Relay Server Starting ===")
 	LOGI("Listen Address: ", app.config.Listen)
@@ -45,112 +42,97 @@ func (app *RelayApp) Run() error {
 	return app.server.Start(app.ctx)
 }
 
-// handleEvents 处理事件循环
 func (app *RelayApp) handleEvents(ctx context.Context) {
-	msgChan := app.eventBus.GetMessageChannel()
+	msgChan := app.msgBus.GetMessageChannel()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case msg := <-msgChan:
-			app.processMessage(msg)
+			switch msg.Header.Source {
+			case MsgSourceLocal:
+				app.handleLocalMsg(msg)
+			case MsgSourceProxy:
+				app.handleProxyMsg(msg)
+			default:
+				LOGE("Unknown message source: ", msg.Header.Source)
+			}
 		}
 	}
 }
 
-// processMessage 处理消息
-func (app *RelayApp) processMessage(msg Message) {
-	switch msg.Source {
-	case MsgSourceLocal:
-		app.handleLocalEvent(msg)
-	case MsgSourceRelay:
-		app.handleUpstreamEvent(msg)
-	default:
-		LOGE("Unknown message source: ", msg.Source)
-	}
-}
-
-// handleLocalEvent 处理本地事件（来自后端真实服务器）
-func (app *RelayApp) handleLocalEvent(msg Message) {
-	switch msg.MessageType {
+func (app *RelayApp) handleLocalMsg(msg Message) {
+	switch msg.Header.MsgType {
 	case MsgTypeConnect:
-		// 后端连接成功，通知下游（tproxy）
-		LOGD("[local-event] Backend connected: ", msg.UUID)
-		msg.Source = MsgSourceTproxy
+		LOGD("[local-event] Backend connected: ", msg.Header.UUID)
+		msg.Header.Source = MsgSourceProxy
 		if err := app.server.SendToDownstream(&msg); err != nil {
 			LOGE("[local-event] Failed to send connect message: ", err)
 		}
 
 	case MsgTypeDisconnect:
-		// 后端连接断开，通知下游
-		LOGD("[local-event] Backend disconnected: ", msg.UUID)
-		msg.Source = MsgSourceTproxy
+		LOGD("[local-event] Backend disconnected: ", msg.Header.UUID)
+		msg.Header.Source = MsgSourceProxy
 		if err := app.server.SendToDownstream(&msg); err != nil {
 			LOGE("[local-event] Failed to send disconnect message: ", err)
 		}
-		app.connMgr.Delete(msg.UUID)
+		app.connMgr.Delete(msg.Header.UUID)
 
 	case MsgTypeData:
-		// 后端数据，转发到下游
-		LOGD("[local-event] Backend data: ", msg.UUID, " length: ", msg.Length)
-		msg.Source = MsgSourceTproxy
+		LOGD("[local-event] Backend data: ", msg.Header.UUID, " length: ", msg.Header.Len)
+		msg.Header.Source = MsgSourceProxy
 		if err := app.server.SendToDownstream(&msg); err != nil {
 			LOGE("[local-event] Failed to send data message: ", err)
 		}
 
 	default:
-		LOGE("[local-event] Unknown message type: ", msg.MessageType)
+		LOGE("[local-event] Unknown message type: ", msg.Header.MsgType)
 	}
 }
 
-// handleUpstreamEvent 处理上游事件（来自tproxy的消息）
-func (app *RelayApp) handleUpstreamEvent(msg Message) {
-	switch msg.MessageType {
+func (app *RelayApp) handleProxyMsg(msg Message) {
+	switch msg.Header.MsgType {
 	case MsgTypeConnect:
-		// tproxy请求连接到真实服务器
-		LOGI("[upstream-event] Connect request: ", msg.UUID, " to ", msg.IPStr)
+		LOGI("[upstream-event] Connect request: ", msg.Header.UUID, " to ", msg.Header.IPStr)
 
 		// 创建连接信息
 		connInfo := &ConnInfo{
-			UUID:       msg.UUID,
-			IPStr:      msg.IPStr,
+			UUID:       msg.Header.UUID,
+			IPStr:      msg.Header.IPStr,
 			Status:     StatusDisconnected,
 			MsgChannel: make(chan Message, 1000),
 		}
-		app.connMgr.Add(msg.UUID, connInfo)
+		app.connMgr.Add(msg.Header.UUID, connInfo)
 
-		// 启动后端连接
-		go connectToBackend(msg.UUID, msg.IPStr, app.eventBus, app.connMgr)
+		go connectToBackend(msg.Header.UUID, msg.Header.IPStr, app.msgBus, app.connMgr)
 
 	case MsgTypeData:
-		// 上游数据，转发到后端真实服务器
-		conn, exists := app.connMgr.Get(msg.UUID)
+		conn, exists := app.connMgr.Get(msg.Header.UUID)
 		if !exists {
-			LOGE("[upstream-event] Connection not found: ", msg.UUID)
+			LOGE("[upstream-event] Connection not found: ", msg.Header.UUID)
 			return
 		}
 
 		if conn.MsgChannel != nil {
 			select {
 			case conn.MsgChannel <- msg:
-				LOGD("[upstream-event] Data queued: ", msg.UUID, " length: ", msg.Length)
+				LOGD("[upstream-event] Data queued: ", msg.Header.UUID, " length: ", msg.Header.Len)
 			default:
-				LOGE("[upstream-event] Message channel full: ", msg.UUID)
+				LOGE("[upstream-event] Message channel full: ", msg.Header.UUID)
 			}
 		}
 
 	case MsgTypeDisconnect:
-		// 上游断开连接
-		LOGD("[upstream-event] Disconnect: ", msg.UUID)
-		conn, exists := app.connMgr.Get(msg.UUID)
+		LOGD("[upstream-event] Disconnect: ", msg.Header.UUID)
+		conn, exists := app.connMgr.Get(msg.Header.UUID)
 		if exists && conn.Conn != nil {
 			conn.Conn.Close()
 		}
-		app.connMgr.Delete(msg.UUID)
+		app.connMgr.Delete(msg.Header.UUID)
 
 	default:
-		LOGE("[upstream-event] Unknown message type: ", msg.MessageType)
+		LOGE("[upstream-event] Unknown message type: ", msg.Header.MsgType)
 	}
 }
 
@@ -158,17 +140,14 @@ func (app *RelayApp) handleUpstreamEvent(msg Message) {
 func (app *RelayApp) Shutdown() {
 	LOGI("=== Relay Server Shutting Down ===")
 
-	// 取消context，停止所有goroutine
 	if app.cancel != nil {
 		app.cancel()
 	}
 
-	// 关闭服务器
 	if app.server != nil {
 		app.server.Close()
 	}
 
-	// 清理所有连接
 	app.connMgr.ForEach(func(uuid string, info *ConnInfo) {
 		app.connMgr.Delete(uuid)
 	})
