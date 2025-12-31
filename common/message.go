@@ -12,20 +12,18 @@ type MessageHeader struct {
 	Len     int
 }
 
-// Message 统一消息协议
 type Message struct {
 	Header MessageHeader
+	Offset int
 	Data   []byte
 }
 
-// 消息来源
 const (
 	MsgSourceLocal = iota + 1
 	MsgSourceRelay
-	MsgSourceProxy
+	MsgSourceTproxy
 )
 
-// 消息类型
 const (
 	MsgTypeUnknown MessageType = iota
 	MsgTypeConnect
@@ -34,12 +32,10 @@ const (
 	MsgTypeMax
 )
 
-// MessageBus 消息总线（事件驱动架构）
 type MessageBus struct {
 	msgChan chan Message
 }
 
-// NewMessageBus 创建消息总线
 func NewMessageBus(chanSize int) *MessageBus {
 	return &MessageBus{
 		msgChan: make(chan Message, chanSize),

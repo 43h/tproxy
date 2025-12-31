@@ -7,9 +7,8 @@ import (
 type BufSize int
 
 const (
-	BufSize64   BufSize = 64
-	BufSize128          = 128
-	BufSize2048         = 2048
+	BufSize128  = 128
+	BufSize2048 = 2048
 )
 
 type BufferPool struct {
@@ -40,5 +39,5 @@ func (bp *BufferPool) getBufSize() int {
 	return int(bp.bufSize)
 }
 
-// DefaultBufferPool 默认buffer池（2048字节）
-var DefaultBufferPool = NewBufPool(BufSize2048)
+var BufferPool2K = NewBufPool(BufSize2048)
+var BufferPool128 = NewBufPool(BufSize128)
