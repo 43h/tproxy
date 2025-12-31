@@ -14,7 +14,6 @@ type ProxyApp struct {
 	msgBus   *MessageBus
 	proxy    *ProxyServer
 	upstream *UpstreamClient
-	bufPool  *BufferPool
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
@@ -22,16 +21,14 @@ type ProxyApp struct {
 func NewProxyApp(config *Config) *ProxyApp {
 	connMgr := NewConnectionManager()
 	msgBus := NewMessageBus(10000)
-	bufPool := NewBufPool(BufSize2048)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &ProxyApp{
 		config:   config,
 		connMgr:  connMgr,
 		msgBus:   msgBus,
-		proxy:    NewProxyServer(config.Listen, connMgr, msgBus, bufPool),
-		upstream: NewUpstreamClient(config.Server, connMgr, msgBus, bufPool),
-		bufPool:  bufPool,
+		proxy:    NewProxyServer(config.Listen, connMgr, msgBus),
+		upstream: NewUpstreamClient(config.Server, connMgr, msgBus),
 		ctx:      ctx,
 		cancel:   cancel,
 	}

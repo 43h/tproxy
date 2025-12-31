@@ -25,12 +25,11 @@ type ProxyServer struct {
 	status   int
 }
 
-func NewProxyServer(addr string, connMgr *ConnectionManager, msgBus *MessageBus, bufPool *BufferPool) *ProxyServer {
+func NewProxyServer(addr string, connMgr *ConnectionManager, msgBus *MessageBus) *ProxyServer {
 	return &ProxyServer{
 		addr:    addr,
 		connMgr: connMgr,
 		msgBus:  msgBus,
-		bufPool: bufPool,
 		status:  StatusNull,
 	}
 }
@@ -137,20 +136,17 @@ func (ps *ProxyServer) handleConnection(conn net.Conn) {
 func (ps *ProxyServer) readLoop(uuid string, conn net.Conn) {
 	defer func() {
 		// 连接关闭时发送断开事件
-		ps.msgBus.EmitDisconnect(uuid)
+		ps.msgBus.AddDisconnectMsg(uuid)
 		ps.connMgr.Delete(uuid)
 		LOGI("[proxy] Connection closed: ", uuid)
 	}()
 
-	bufPool := DefaultBufferPool
-
 	for {
-		// 从池中获取buffer
-		buf := bufPool.Get()
+		buf := BufferPool2K.Get()
 		n, err := conn.Read(buf)
 
 		if err != nil {
-			bufPool.Put(buf)
+			BufferPool2K.Put(buf[:0])
 			LOGD("[proxy] Read error: ", uuid, " ", err)
 			return
 		}
@@ -160,10 +156,10 @@ func (ps *ProxyServer) readLoop(uuid string, conn net.Conn) {
 			data := buf[:n]
 
 			// 发送数据事件（带释放回调）
-			ps.msgBus.EmitData(uuid, data, n)
+			ps.msgBus.AddDataMsg(uuid, data, n)
 			LOGD("[proxy] Data read: ", uuid, " ", n, " bytes")
 		} else {
-			bufPool.Put(buf)
+			BufferPool2K.Put(buf)
 		}
 	}
 }

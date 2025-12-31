@@ -24,12 +24,11 @@ type UpstreamClient struct {
 }
 
 // NewUpstreamClient 创建上游客户端
-func NewUpstreamClient(serverAddr string, connMgr *ConnectionManager, msgBus *MessageBus, bufPool *BufferPool) *UpstreamClient {
+func NewUpstreamClient(serverAddr string, connMgr *ConnectionManager, msgBus *MessageBus) *UpstreamClient {
 	return &UpstreamClient{
 		serverAddr: serverAddr,
 		connMgr:    connMgr,
 		msgBus:     msgBus,
-		bufPool:    bufPool,
 		status:     StatusDisconnected,
 	}
 }
