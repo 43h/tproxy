@@ -24,7 +24,8 @@ const (
 )
 
 const (
-	MsgTypeConnect MessageType = iota + 1
+	MsgTypeUnknown MessageType = iota
+	MsgTypeConnect
 	MsgTypeDisconnect
 	MsgTypeData
 )
