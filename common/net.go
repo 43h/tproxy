@@ -86,12 +86,11 @@ func (w *MessageWriter) WriteMessage(msg *Message) error {
 	}
 
 	if msg.Header.Len > 0 && len(msg.Data) > 0 {
-		_, err := w.conn.Write(msg.Data)
-		BufferPool2K.Put(msg.Data[:0])
-		msg.Data = nil
-		if err != nil {
+		if _, err := w.conn.Write(msg.Data); err != nil {
 			return fmt.Errorf("write data failed: %w", err)
 		}
+		BufferPool2K.Put(msg.Data[:0])
+		msg.Data = nil
 	}
 
 	return nil
