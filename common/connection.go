@@ -38,20 +38,12 @@ func (cm *ConnectionManager) Add(uuid string, info *ConnInfo) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	if oldConn, exists := cm.connections[uuid]; exists {
+	if _, exists := cm.connections[uuid]; exists {
 		LOGI("Connection UUID conflict, cleaning old connection: ", uuid)
-		if oldConn.Conn != nil {
-			if err := oldConn.Conn.Close(); err != nil {
-				LOGE("Connection closed err: ", err)
-			}
-		}
-		if oldConn.MsgChannel != nil {
-			close(oldConn.MsgChannel)
-		}
+		cm.Delete(uuid)
 	}
 
 	info.Timestamp = time.Now().Unix()
-	delete(cm.connections, uuid)
 	cm.connections[uuid] = info
 }
 
