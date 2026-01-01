@@ -10,25 +10,22 @@ import (
 	. "tproxy/common"
 )
 
-// RelayServer 中继服务器（监听来自tproxy的连接）
 type RelayServer struct {
 	addr     string
 	connMgr  *ConnectionManager
 	msgBus   *MessageBus
 	listener net.Listener
 
-	// 下游连接（tproxy客户端）
 	mu               sync.RWMutex
 	downstreamConn   net.Conn
 	downstreamReader *MessageReader
 	downstreamWriter *MessageWriter
 	downstreamStatus int
-	sendChan         chan Message // 发送消息通道
+	sendChan         chan Message
 	ctx              context.Context
 	cancelSend       context.CancelFunc
 }
 
-// NewRelayServer 创建中继服务器
 func NewRelayServer(addr string, connMgr *ConnectionManager, msgBus *MessageBus) *RelayServer {
 	return &RelayServer{
 		addr:             addr,
@@ -38,11 +35,9 @@ func NewRelayServer(addr string, connMgr *ConnectionManager, msgBus *MessageBus)
 	}
 }
 
-// Start 启动中继服务器
 func (s *RelayServer) Start(ctx context.Context) error {
 	LOGI("[relay] Starting server on: ", s.addr)
 
-	// 创建监听器
 	tmpListener, err := net.Listen("tcp", s.addr)
 	if err != nil {
 		return fmt.Errorf("listen failed: %w", err)
@@ -51,11 +46,9 @@ func (s *RelayServer) Start(ctx context.Context) error {
 	s.listener = tmpListener
 	LOGI("[relay] Server listening on ", s.addr)
 
-	// 接受连接循环
 	return s.acceptLoop(ctx)
 }
 
-// acceptLoop 接受连接循环
 func (s *RelayServer) acceptLoop(ctx context.Context) error {
 	for {
 		select {
@@ -68,19 +61,18 @@ func (s *RelayServer) acceptLoop(ctx context.Context) error {
 				continue
 			}
 
-			// 检查是否已有连接（只允许一个tproxy客户端）
 			s.mu.Lock()
 			if s.downstreamConn != nil || s.downstreamStatus == StatusConnected {
 				LOGI("[relay] Only one client allowed, rejecting new connection")
-				conn.Close()
+				if err := conn.Close(); err != nil {
+					LOGE("[relay] Only one client allowed, rejecting connection")
+				}
 				s.mu.Unlock()
 				continue
 			}
 
-			// 创建发送goroutine的context
 			sendCtx, cancelSend := context.WithCancel(ctx)
 
-			// 接受新连接
 			s.downstreamConn = conn
 			s.downstreamReader = NewMessageReader(conn)
 			s.downstreamWriter = NewMessageWriter(conn)
@@ -92,25 +84,21 @@ func (s *RelayServer) acceptLoop(ctx context.Context) error {
 
 			LOGI("[relay] Downstream client connected from: ", conn.RemoteAddr())
 
-			// 启动接收和发送循环
 			go s.receiveLoop(ctx, conn)
 			go s.sendLoop(sendCtx, conn)
 		}
 	}
 }
 
-// receiveLoop 接收来自下游的消息
 func (s *RelayServer) receiveLoop(ctx context.Context, conn net.Conn) {
 	defer func() {
 		s.mu.Lock()
 
-		// 取消发送goroutine
 		if s.cancelSend != nil {
 			s.cancelSend()
 			s.cancelSend = nil
 		}
 
-		// 关闭发送通道
 		if s.sendChan != nil {
 			close(s.sendChan)
 			s.sendChan = nil
@@ -122,7 +110,9 @@ func (s *RelayServer) receiveLoop(ctx context.Context, conn net.Conn) {
 		s.downstreamStatus = StatusDisconnected
 		s.mu.Unlock()
 
-		conn.Close()
+		if err := conn.Close(); err != nil {
+			LOGI("[relay] Only one client allowed, rejecting connection")
+		}
 		LOGI("[relay] Downstream client disconnected")
 	}()
 
@@ -145,10 +135,8 @@ func (s *RelayServer) receiveLoop(ctx context.Context, conn net.Conn) {
 				return
 			}
 
-			// 设置消息来源为Proxy
 			msg.Header.Source = MsgSourceProxy
 
-			// 发送到事件总线
 			s.msgBus.SendMessage(*msg)
 
 			LOGD("[relay] Received message from downstream: ", msg.Header.MsgType, " UUID: ", msg.Header.UUID)
@@ -156,7 +144,6 @@ func (s *RelayServer) receiveLoop(ctx context.Context, conn net.Conn) {
 	}
 }
 
-// sendLoop 发送消息到下游循环
 func (s *RelayServer) sendLoop(ctx context.Context, conn net.Conn) {
 	for {
 		select {
@@ -182,7 +169,6 @@ func (s *RelayServer) sendLoop(ctx context.Context, conn net.Conn) {
 	}
 }
 
-// SendToDownstream 发送消息到下游（tproxy）通过消息通道
 func (s *RelayServer) SendToDownstream(msg *Message) error {
 	s.mu.RLock()
 	status := s.downstreamStatus
@@ -193,7 +179,6 @@ func (s *RelayServer) SendToDownstream(msg *Message) error {
 		return fmt.Errorf("downstream not connected")
 	}
 
-	// 发送到通道
 	select {
 	case sendChan <- *msg:
 		LOGD("[relay] Message queued for downstream: ", msg.Header.MsgType, " UUID: ", msg.Header.UUID)
@@ -203,11 +188,9 @@ func (s *RelayServer) SendToDownstream(msg *Message) error {
 	}
 }
 
-// Close 关闭服务器
 func (s *RelayServer) Close() {
 	LOGI("[relay] Closing server")
 
-	// 关闭下游连接
 	s.mu.Lock()
 	if s.downstreamConn != nil {
 		s.downstreamConn.Close()
@@ -215,8 +198,7 @@ func (s *RelayServer) Close() {
 	}
 	s.downstreamStatus = StatusDisconnected
 	s.mu.Unlock()
-
-	// 关闭监听器
+	
 	if s.listener != nil {
 		if err := s.listener.Close(); err != nil {
 			LOGE("[relay] Close listener failed: ", err)
