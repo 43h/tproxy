@@ -198,7 +198,7 @@ func (s *RelayServer) Close() {
 	}
 	s.downstreamStatus = StatusDisconnected
 	s.mu.Unlock()
-	
+
 	if s.listener != nil {
 		if err := s.listener.Close(); err != nil {
 			LOGE("[relay] Close listener failed: ", err)
