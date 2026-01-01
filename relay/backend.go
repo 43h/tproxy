@@ -8,13 +8,13 @@ import (
 )
 
 // connectToBackend 连接到真实服务器
-func connectToBackend(uuid string, serverAddr string, eventBus *MessageBus, connMgr *ConnectionManager) {
+func connectToBackend(uuid string, serverAddr string, msgBus *MessageBus, connMgr *ConnectionManager) {
 	LOGI("[backend] Connecting to: ", uuid, " ", serverAddr)
 
 	conn, err := net.Dial("tcp", serverAddr)
 	if err != nil {
 		LOGE("[backend] Connect failed: ", uuid, " ", serverAddr, " ", err)
-		eventBus.AddDisconnectMsg(uuid)
+		msgBus.AddDisconnectMsg(uuid)
 		return
 	}
 
@@ -26,8 +26,8 @@ func connectToBackend(uuid string, serverAddr string, eventBus *MessageBus, conn
 		ci.Status = StatusConnected
 	})
 
-	// 发送连接成功事件
-	eventBus.AddConnectMsg(uuid, serverAddr, nil)
+	// 发送连接成功消息
+	msgBus.AddConnectMsg(uuid, serverAddr, nil)
 
 	// 获取连接信息
 	connInfo, exists := connMgr.Get(uuid)
@@ -38,43 +38,38 @@ func connectToBackend(uuid string, serverAddr string, eventBus *MessageBus, conn
 	}
 
 	// 启动发送和接收goroutine
-	go handleBackendReceive(uuid, conn, eventBus)
+	go handleBackendReceive(uuid, conn, msgBus)
 	go handleBackendSend(uuid, conn, connInfo.MsgChannel)
 }
 
 // handleBackendReceive 接收来自真实服务器的数据（零拷贝优化）
-func handleBackendReceive(uuid string, conn net.Conn, eventBus *MessageBus) {
+func handleBackendReceive(uuid string, conn net.Conn, msgBus *MessageBus) {
 	defer func() {
-		eventBus.AddDisconnectMsg(uuid)
+		msgBus.AddDisconnectMsg(uuid)
 		conn.Close()
 		LOGI("[backend] Receive loop ended: ", uuid)
 	}()
 
-	bufPool := DefaultBufferPool
-
 	for {
 		// 从池中获取buffer
-		buf := bufPool.Get()
+		buf := BufferPool2K.Get()
 		n, err := conn.Read(buf)
 
 		if err != nil {
-			bufPool.Put(buf)
+			BufferPool2K.Put(buf)
 			LOGE("[backend] Read failed: ", uuid, " ", err)
 			return
 		}
 
 		if n > 0 {
-			// 零拷贝：直接使用buffer切片，传递释放回调
+			// 零拷贝：直接使用buffer切片
 			data := buf[:n]
-			releaseFunc := func() {
-				bufPool.Put(buf)
-			}
 
-			// 发送数据事件（带释放回调）
-			eventBus.EmitDataWithRelease(uuid, data, n, releaseFunc)
+			// 发送数据消息
+			msgBus.AddDataMsg(uuid, data, n)
 			LOGD("[backend] Data received: ", uuid, " ", n, " bytes")
 		} else {
-			bufPool.Put(buf)
+			BufferPool2K.Put(buf)
 		}
 	}
 }
