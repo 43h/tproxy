@@ -39,5 +39,5 @@ func (bp *BufferPool) getBufSize() int {
 	return int(bp.bufSize)
 }
 
-var BufferPool2K = NewBufPool(BufSize2048)
 var BufferPool128 = NewBufPool(BufSize128)
+var BufferPool2K = NewBufPool(BufSize2048)
