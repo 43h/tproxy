@@ -14,7 +14,6 @@ type MessageHeader struct {
 
 type Message struct {
 	Header MessageHeader
-	Offset int
 	Data   []byte
 }
 
@@ -25,11 +24,9 @@ const (
 )
 
 const (
-	MsgTypeUnknown MessageType = iota
-	MsgTypeConnect
+	MsgTypeConnect MessageType = iota + 1
 	MsgTypeDisconnect
 	MsgTypeData
-	MsgTypeMax
 )
 
 type MessageBus struct {
@@ -72,14 +69,14 @@ func (mb *MessageBus) AddDisconnectMsg(uuid string) {
 	mb.msgChan <- msg
 }
 
-func (mb *MessageBus) AddDataMsg(uuid string, data []byte, length int) {
+func (mb *MessageBus) AddDataMsg(uuid string, data []byte, len int) {
 	msg := Message{Header: MessageHeader{
 		Source:  MsgSourceLocal,
 		MsgType: MsgTypeData,
 		UUID:    uuid,
-		Len:     length,
+		Len:     len,
 	},
-		Data: data[:length],
+		Data: data[:len],
 	}
 	mb.msgChan <- msg
 }
