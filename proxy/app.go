@@ -8,9 +8,9 @@ import (
 
 type ProxyApp struct {
 	config   *Config
+	proxy    *ProxyServer
 	connMgr  *ConnectionManager
 	msgBus   *MessageBus
-	proxy    *ProxyServer
 	upstream *UpstreamClient
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -21,12 +21,13 @@ func NewProxyApp(config *Config) *ProxyApp {
 	msgBus := NewMessageBus(10000)
 	ctx, cancel := context.WithCancel(context.Background())
 	upstream := NewUpstreamClient(config.Server, connMgr, msgBus)
+	proxy := NewProxyServer(config.Listen, connMgr, msgBus, upstream)
 
 	return &ProxyApp{
 		config:   config,
 		connMgr:  connMgr,
 		msgBus:   msgBus,
-		proxy:    NewProxyServer(config.Listen, connMgr, msgBus, upstream),
+		proxy:    proxy,
 		upstream: upstream,
 		ctx:      ctx,
 		cancel:   cancel,
@@ -40,7 +41,6 @@ func (app *ProxyApp) Run() error {
 
 	go app.handleMessages(app.ctx)
 
-	// 启动上游连接
 	go func() {
 		if err := app.upstream.Start(app.ctx); err != nil && !errors.Is(err, context.Canceled) {
 			LOGE("Upstream client error: ", err)
@@ -77,6 +77,7 @@ func (app *ProxyApp) handleLocalMessage(msg Message) {
 		LOGD("[local-msg] Connect: ", msg.Header.UUID, " ", msg.Header.IPStr)
 		msg.Header.Source = MsgSourceProxy
 		if err := app.upstream.SendMessage(&msg); err != nil {
+			app.connMgr.UpdateStatus(msg.Header.UUID, StatusDisconnect)
 			LOGE("[local-msg] Failed to send connect message: ", err)
 		}
 
@@ -99,6 +100,7 @@ func (app *ProxyApp) handleLocalMessage(msg Message) {
 		LOGD("[local-msg] Data: ", msg.Header.UUID, " length: ", msg.Header.Len)
 		msg.Header.Source = MsgSourceProxy
 		if err := app.upstream.SendMessage(&msg); err != nil {
+			app.connMgr.UpdateStatus(msg.Header.UUID, StatusDisconnect)
 			LOGE("[local-msg] Failed to send data message: ", err)
 		}
 
@@ -130,9 +132,7 @@ func (app *ProxyApp) handleRelayMessage(msg Message) {
 		conn, exists := app.connMgr.Get(msg.Header.UUID)
 		if exists && conn.Conn != nil {
 			conn.Status = StatusDisconnect
-			conn.Conn.Close()
-			app.connMgr.Delete(msg.Header.UUID)
-			LOGI("[relay-msg] Connection closed by relay: ", msg.Header.UUID)
+			LOGI("[relay-msg] Connection closed by relay: ", msg.Header.UUID, " close it later")
 		}
 
 	default:
@@ -143,12 +143,10 @@ func (app *ProxyApp) handleRelayMessage(msg Message) {
 func (app *ProxyApp) Shutdown() {
 	LOGI("=== TProxy Application Shutting Down ===")
 
-	// 取消context，停止所有goroutine
 	if app.cancel != nil {
 		app.cancel()
 	}
 
-	// 关闭上游连接
 	if app.upstream != nil {
 		app.upstream.Close()
 	}
@@ -157,7 +155,6 @@ func (app *ProxyApp) Shutdown() {
 		app.proxy.Close()
 	}
 
-	// 清理所有连接
 	app.connMgr.ForEach(func(uuid string, info *ConnInfo) {
 		app.connMgr.Delete(uuid)
 	})
