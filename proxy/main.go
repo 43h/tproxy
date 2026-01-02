@@ -33,10 +33,8 @@ func main() {
 		return
 	}
 
-	// 创建应用
 	app := NewProxyApp(&ConfigParam)
 
-	// 设置信号处理
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGINT)
@@ -46,7 +44,6 @@ func main() {
 		errChan <- app.Run()
 	}()
 
-	// 等待信号或错误
 	select {
 	case err := <-errChan:
 		if err != nil {
@@ -56,7 +53,6 @@ func main() {
 		LOGI("Received signal: ", sig)
 	}
 
-	// 优雅关闭
 	app.Shutdown()
 }
 
