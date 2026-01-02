@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"syscall"
+	"time"
 	. "tproxy/common"
 
 	"github.com/google/uuid"
@@ -141,16 +142,18 @@ func (ps *ProxyServer) handleConnection(conn net.Conn) {
 
 func (ps *ProxyServer) readLoop(uuid string, connInfo *ConnInfo) {
 	defer func() {
-		// 连接关闭时发送断开事件
-		connInfo.Conn.Close()
 		ps.msgBus.AddDisconnectMsg(uuid)
 		LOGI("[proxy] Connection closed: ", uuid)
 	}()
 
 	for {
 		if connInfo.Status == StatusDisconnect {
-			LOGI("[proxy] Connection marked as disconnected by relay: ", uuid)
+			LOGI("[proxy] close read routine: ", uuid)
 			return
+		}
+
+		if err := connInfo.Conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			LOGI("[proxy] Set read deadline failed: ", err)
 		}
 
 		buf := BufferPool2K.Get()
@@ -158,6 +161,11 @@ func (ps *ProxyServer) readLoop(uuid string, connInfo *ConnInfo) {
 
 		if err != nil {
 			BufferPool2K.Put(buf[:0])
+
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue
+			}
+
 			LOGD("[proxy] Read error: ", uuid, " ", err)
 			return
 		}
@@ -174,33 +182,47 @@ func (ps *ProxyServer) readLoop(uuid string, connInfo *ConnInfo) {
 }
 
 func getOriginalDst(conn *net.TCPConn) (string, error) {
-	file, err := conn.File()
+	// 使用SyscallConn获取文件描述符，避免File()导致连接进入阻塞模式
+	rawConn, err := conn.SyscallConn()
 	if err != nil {
 		return "", err
 	}
-	fd := file.Fd()
 
-	sa, err := unix.Getsockname(int(fd))
-	if err != nil {
-		return "", err
-	} else {
-		switch addr := sa.(type) {
-		case *unix.SockaddrInet4:
-			ip := net.IP(addr.Addr[:]).String()
-			port := addr.Port
-			return ip + ":" + strconv.Itoa(port), nil
-		//case *unix.SockaddrInet6:  //Todo: support IPv6
-		//	ip := net.IP(addr.Addr[:]).String()
-		//	port := addr.Port
-		//	fmt.Printf("IPv6 Address: %s, Port: %d\n", ip, port)
+	var addr string
+	var sockErr error
 
-		//case *unix.SockaddrUnix:
-		//	fmt.Printf("Unix Socket Path: %s\n", addr.Name)
-
-		default:
+	err = rawConn.Control(func(fd uintptr) {
+		sa, err := unix.Getsockname(int(fd))
+		if err != nil {
+			sockErr = err
+			return
 		}
+
+		switch sockAddr := sa.(type) {
+		case *unix.SockaddrInet4:
+			ip := net.IP(sockAddr.Addr[:]).String()
+			port := sockAddr.Port
+			addr = ip + ":" + strconv.Itoa(port)
+		//case *unix.SockaddrInet6:  //Todo: support IPv6
+		//	ip := net.IP(sockAddr.Addr[:]).String()
+		//	port := sockAddr.Port
+		//	addr = ip + ":" + strconv.Itoa(port)
+		default:
+			sockErr = errors.New("unknown address type")
+		}
+	})
+
+	if err != nil {
+		return "", err
 	}
-	return "", errors.New("unknown address type")
+	if sockErr != nil {
+		return "", sockErr
+	}
+	if addr == "" {
+		return "", errors.New("failed to get original destination")
+	}
+
+	return addr, nil
 }
 
 func (ps *ProxyServer) Close() {
