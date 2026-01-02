@@ -110,14 +110,18 @@ func (ps *ProxyServer) handleConnection(conn net.Conn) {
 	// 检查上游连接状态
 	if ps.upstream == nil || !ps.upstream.IsConnected() {
 		LOGE("[proxy] Rejecting connection: upstream not connected")
-		conn.Close()
+		if err := conn.Close(); err != nil {
+			LOGE("[proxy] Failed to close connection")
+		}
 		return
 	}
 
 	origDst, err := getOriginalDst(conn.(*net.TCPConn))
 	if err != nil {
 		LOGE("[proxy] Get original destination failed: ", err)
-		conn.Close()
+		if err := conn.Close(); err != nil {
+			LOGE("[proxy] Failed to close connection")
+		}
 		return
 	}
 
@@ -203,7 +207,7 @@ func getOriginalDst(conn *net.TCPConn) (string, error) {
 			ip := net.IP(sockAddr.Addr[:]).String()
 			port := sockAddr.Port
 			addr = ip + ":" + strconv.Itoa(port)
-		//case *unix.SockaddrInet6:  //Todo: support IPv6
+		//case *unix.SockaddrInet6:  //IPv6
 		//	ip := net.IP(sockAddr.Addr[:]).String()
 		//	port := sockAddr.Port
 		//	addr = ip + ":" + strconv.Itoa(port)
