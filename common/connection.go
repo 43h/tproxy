@@ -66,6 +66,18 @@ func (cm *ConnectionManager) Update(uuid string, fn func(*ConnInfo)) bool {
 	return false
 }
 
+func (cm *ConnectionManager) UpdateStatus(uuid string, status int) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	conn, exists := cm.connections[uuid]
+	if exists {
+		conn.Status = status
+		conn.Timestamp = time.Now().Unix()
+		return true
+	}
+	return false
+}
+
 func (cm *ConnectionManager) Delete(uuid string) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
