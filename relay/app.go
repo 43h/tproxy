@@ -18,12 +18,13 @@ func NewRelayApp(config *Config) *RelayApp {
 	connMgr := NewConnectionManager()
 	msgBus := NewMessageBus(10000)
 	ctx, cancel := context.WithCancel(context.Background())
+	server := NewRelayServer(config.Listen, connMgr, msgBus)
 
 	return &RelayApp{
 		config:  config,
 		connMgr: connMgr,
 		msgBus:  msgBus,
-		server:  NewRelayServer(config.Listen, connMgr, msgBus),
+		server:  server,
 		ctx:     ctx,
 		cancel:  cancel,
 	}
@@ -33,10 +34,8 @@ func (app *RelayApp) Run() error {
 	LOGI("=== Relay Server Starting ===")
 	LOGI("Listen Address: ", app.config.Listen)
 
-	// 启动消息处理循环
 	go app.handleMessages(app.ctx)
 
-	// 启动中继服务器（阻塞）
 	return app.server.Start(app.ctx)
 }
 
@@ -64,9 +63,16 @@ func (app *RelayApp) handleLocalMessage(msg Message) {
 	switch msg.Header.MsgType {
 	case MsgTypeDisconnect:
 		LOGD("[local-msg] Backend disconnected: ", msg.Header.UUID)
-		msg.Header.Source = MsgSourceRelay
-		if err := app.server.SendToDownstream(&msg); err != nil {
-			LOGE("[local-msg] Failed to send disconnect message: ", err)
+		connInfo, exists := app.connMgr.Get(msg.Header.UUID)
+		if !exists {
+			LOGE("[upstream-msg] Connection not found: ", msg.Header.UUID)
+			return
+		}
+		if connInfo.Status == StatusConnected {
+			msg.Header.Source = MsgSourceRelay
+			if err := app.server.SendToDownstream(&msg); err != nil {
+				LOGE("[local-msg] Failed to send disconnect message: ", err)
+			}
 		}
 		app.connMgr.Delete(msg.Header.UUID)
 
@@ -87,7 +93,6 @@ func (app *RelayApp) handleProxyMessage(msg Message) {
 	case MsgTypeConnect:
 		LOGI("[proxy-msg] Connect request: ", msg.Header.UUID, " to ", msg.Header.IPStr)
 
-		// 创建连接信息
 		connInfo := &ConnInfo{
 			UUID:       msg.Header.UUID,
 			IPStr:      msg.Header.IPStr,
@@ -116,12 +121,7 @@ func (app *RelayApp) handleProxyMessage(msg Message) {
 
 	case MsgTypeDisconnect:
 		LOGD("[proxy-msg] Disconnect: ", msg.Header.UUID)
-		conn, exists := app.connMgr.Get(msg.Header.UUID)
-		if exists && conn.Conn != nil {
-			conn.Conn.Close()
-		}
 		app.connMgr.Delete(msg.Header.UUID)
-
 	default:
 		LOGE("[proxy-msg] Unknown message type: ", msg.Header.MsgType)
 	}
