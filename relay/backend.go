@@ -21,7 +21,7 @@ func connectToBackend(uuid string, serverAddr string, msgBus *MessageBus, connMg
 		ci.Conn = conn
 		ci.Status = StatusConnected
 	})
-	
+
 	connInfo, exists := connMgr.Get(uuid)
 	if !exists {
 		LOGE("[backend] Connection not found after connect: ", uuid)
@@ -79,7 +79,7 @@ func handleBackendSend(uuid string, conn net.Conn, msgChannel chan Message) {
 		}
 
 		n, err := conn.Write(msg.Data)
-		// 总是释放buffer
+
 		BufferPool2K.Put(msg.Data)
 
 		if err != nil {
