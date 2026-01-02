@@ -1,5 +1,3 @@
-//go:build linux
-
 package main
 
 import (
@@ -22,15 +20,17 @@ type ProxyServer struct {
 	msgBus   *MessageBus
 	bufPool  *BufferPool
 	listener net.Listener
+	upstream *UpstreamClient
 	status   int
 }
 
-func NewProxyServer(addr string, connMgr *ConnectionManager, msgBus *MessageBus) *ProxyServer {
+func NewProxyServer(addr string, connMgr *ConnectionManager, msgBus *MessageBus, upstream *UpstreamClient) *ProxyServer {
 	return &ProxyServer{
-		addr:    addr,
-		connMgr: connMgr,
-		msgBus:  msgBus,
-		status:  StatusNull,
+		addr:     addr,
+		connMgr:  connMgr,
+		msgBus:   msgBus,
+		upstream: upstream,
+		status:   StatusNull,
 	}
 }
 
@@ -106,6 +106,13 @@ func (ps *ProxyServer) acceptLoop(ctx context.Context) error {
 }
 
 func (ps *ProxyServer) handleConnection(conn net.Conn) {
+	// 检查上游连接状态
+	if ps.upstream == nil || !ps.upstream.IsConnected() {
+		LOGE("[proxy] Rejecting connection: upstream not connected")
+		conn.Close()
+		return
+	}
+
 	origDst, err := getOriginalDst(conn.(*net.TCPConn))
 	if err != nil {
 		LOGE("[proxy] Get original destination failed: ", err)
@@ -129,21 +136,25 @@ func (ps *ProxyServer) handleConnection(conn net.Conn) {
 
 	ps.msgBus.AddConnectMsg(connUUID, origDst, nil)
 
-	ps.readLoop(connUUID, conn)
+	ps.readLoop(connUUID, connInfo)
 }
 
-// readLoop 读取连接数据循环（零拷贝优化）
-func (ps *ProxyServer) readLoop(uuid string, conn net.Conn) {
+func (ps *ProxyServer) readLoop(uuid string, connInfo *ConnInfo) {
 	defer func() {
 		// 连接关闭时发送断开事件
+		connInfo.Conn.Close()
 		ps.msgBus.AddDisconnectMsg(uuid)
-		ps.connMgr.Delete(uuid)
 		LOGI("[proxy] Connection closed: ", uuid)
 	}()
 
 	for {
+		if connInfo.Status == StatusDisconnect {
+			LOGI("[proxy] Connection marked as disconnected by relay: ", uuid)
+			return
+		}
+
 		buf := BufferPool2K.Get()
-		n, err := conn.Read(buf)
+		n, err := connInfo.Conn.Read(buf)
 
 		if err != nil {
 			BufferPool2K.Put(buf[:0])
@@ -152,10 +163,8 @@ func (ps *ProxyServer) readLoop(uuid string, conn net.Conn) {
 		}
 
 		if n > 0 {
-			// 零拷贝：直接使用buffer切片，传递释放回调
 			data := buf[:n]
 
-			// 发送数据事件（带释放回调）
 			ps.msgBus.AddDataMsg(uuid, data, n)
 			LOGD("[proxy] Data read: ", uuid, " ", n, " bytes")
 		} else {

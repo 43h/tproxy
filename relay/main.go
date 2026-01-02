@@ -1,5 +1,3 @@
-//go:build windows
-
 package main
 
 import (
@@ -35,8 +33,7 @@ func main() {
 	app := NewRelayApp(&ConfigParam)
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 
 	errChan := make(chan error, 1)
 	go func() {

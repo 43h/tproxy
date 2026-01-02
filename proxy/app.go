@@ -1,5 +1,3 @@
-//go:build linux
-
 package main
 
 import (
@@ -22,13 +20,14 @@ func NewProxyApp(config *Config) *ProxyApp {
 	connMgr := NewConnectionManager()
 	msgBus := NewMessageBus(10000)
 	ctx, cancel := context.WithCancel(context.Background())
+	upstream := NewUpstreamClient(config.Server, connMgr, msgBus)
 
 	return &ProxyApp{
 		config:   config,
 		connMgr:  connMgr,
 		msgBus:   msgBus,
-		proxy:    NewProxyServer(config.Listen, connMgr, msgBus),
-		upstream: NewUpstreamClient(config.Server, connMgr, msgBus),
+		proxy:    NewProxyServer(config.Listen, connMgr, msgBus, upstream),
+		upstream: upstream,
 		ctx:      ctx,
 		cancel:   cancel,
 	}
@@ -48,11 +47,9 @@ func (app *ProxyApp) Run() error {
 		}
 	}()
 
-	// 启动tproxy服务器 (阻塞)
 	return app.proxy.Start(app.ctx)
 }
 
-// handleEvents 处理事件循环
 func (app *ProxyApp) handleMessages(ctx context.Context) {
 	msgChan := app.msgBus.GetMessageChannel()
 
@@ -73,28 +70,34 @@ func (app *ProxyApp) handleMessages(ctx context.Context) {
 	}
 }
 
-// handleLocalMessage 处理本地事件（TPROXY服务器产生的事件）
 func (app *ProxyApp) handleLocalMessage(msg Message) {
 
 	switch msg.Header.MsgType {
 	case MsgTypeConnect:
-		// TPROXY接收到新连接，转发连接请求到上游
 		LOGD("[local-msg] Connect: ", msg.Header.UUID, " ", msg.Header.IPStr)
+		msg.Header.Source = MsgSourceProxy
 		if err := app.upstream.SendMessage(&msg); err != nil {
 			LOGE("[local-msg] Failed to send connect message: ", err)
 		}
 
 	case MsgTypeDisconnect:
-		// 本地连接断开，通知上游
 		LOGD("[local-msg] Disconnect: ", msg.Header.UUID)
-		if err := app.upstream.SendMessage(&msg); err != nil {
-			LOGE("[local-msg] Failed to send disconnect message: ", err)
+		connInfo, exists := app.connMgr.Get(msg.Header.UUID)
+		if !exists {
+			LOGE("[upstream-msg] Connection not found: ", msg.Header.UUID)
+			return
+		}
+		if connInfo.Status == StatusConnected {
+			msg.Header.Source = MsgSourceProxy
+			if err := app.upstream.SendMessage(&msg); err != nil {
+				LOGE("[local-msg] Failed to send disconnect message: ", err)
+			}
 		}
 		app.connMgr.Delete(msg.Header.UUID)
 
 	case MsgTypeData:
-		// 本地数据，转发到上游
 		LOGD("[local-msg] Data: ", msg.Header.UUID, " length: ", msg.Header.Len)
+		msg.Header.Source = MsgSourceProxy
 		if err := app.upstream.SendMessage(&msg); err != nil {
 			LOGE("[local-msg] Failed to send data message: ", err)
 		}
@@ -110,29 +113,30 @@ func (app *ProxyApp) handleRelayMessage(msg Message) {
 	case MsgTypeData:
 		conn, exists := app.connMgr.Get(msg.Header.UUID)
 		if !exists {
-			LOGE("[upstream-msg] Connection not found: ", msg.Header.UUID)
+			LOGE("[relay-msg] Connection not found: ", msg.Header.UUID)
 			return
 		}
 
 		n, err := conn.Conn.Write(msg.Data)
 		if err != nil {
-			LOGE("[upstream-msg] Write failed: ", msg.Header.UUID, " ", err)
+			LOGE("[relay-msg] Write failed: ", msg.Header.UUID, " ", err)
 			app.msgBus.AddDisconnectMsg(msg.Header.UUID)
 		} else {
-			LOGD("[upstream-msg] Data written: ", msg.Header.UUID, " ", n, " bytes")
+			LOGD("[relay-msg] Data written: ", msg.Header.UUID, " ", n, " bytes")
 		}
 
 	case MsgTypeDisconnect:
-		// 上游断开连接
-		LOGD("[upstream-msg] Disconnect: ", msg.Header.UUID)
+		LOGD("[relay-msg] Disconnect: ", msg.Header.UUID)
 		conn, exists := app.connMgr.Get(msg.Header.UUID)
 		if exists && conn.Conn != nil {
+			conn.Status = StatusDisconnect
 			conn.Conn.Close()
+			app.connMgr.Delete(msg.Header.UUID)
+			LOGI("[relay-msg] Connection closed by relay: ", msg.Header.UUID)
 		}
-		app.connMgr.Delete(msg.Header.UUID)
 
 	default:
-		LOGE("[upstream-msg] Unknown message type: ", msg.Header.MsgType)
+		LOGE("[relay-msg] Unknown message type: ", msg.Header.MsgType)
 	}
 }
 

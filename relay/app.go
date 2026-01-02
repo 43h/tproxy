@@ -1,5 +1,3 @@
-//go:build windows
-
 package main
 
 import (
@@ -64,13 +62,6 @@ func (app *RelayApp) handleMessages(ctx context.Context) {
 
 func (app *RelayApp) handleLocalMessage(msg Message) {
 	switch msg.Header.MsgType {
-	case MsgTypeConnect:
-		LOGD("[local-msg] Backend connected: ", msg.Header.UUID)
-		msg.Header.Source = MsgSourceRelay
-		if err := app.server.SendToDownstream(&msg); err != nil {
-			LOGE("[local-msg] Failed to send connect message: ", err)
-		}
-
 	case MsgTypeDisconnect:
 		LOGD("[local-msg] Backend disconnected: ", msg.Header.UUID)
 		msg.Header.Source = MsgSourceRelay

@@ -75,6 +75,7 @@ func (cm *ConnectionManager) Delete(uuid string) {
 				LOGE("Connection close error:", err)
 			}
 			conn.Conn = nil
+			conn.Status = StatusDisconnected
 		}
 		if conn.MsgChannel != nil {
 			close(conn.MsgChannel)

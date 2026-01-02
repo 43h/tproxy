@@ -1,5 +1,3 @@
-//go:build windows
-
 package main
 
 import (
@@ -23,12 +21,12 @@ func connectToBackend(uuid string, serverAddr string, msgBus *MessageBus, connMg
 		ci.Conn = conn
 		ci.Status = StatusConnected
 	})
-
+	
 	connInfo, exists := connMgr.Get(uuid)
 	if !exists {
 		LOGE("[backend] Connection not found after connect: ", uuid)
 		if err := conn.Close(); err != nil {
-			LOGI("[backend] Failed to close connection: ", uuid, " ", serverAddr, " ", err)
+			LOGE("[backend] Failed to close connection: ", uuid, " ", serverAddr, " ", err)
 		}
 		return
 	}
@@ -81,7 +79,9 @@ func handleBackendSend(uuid string, conn net.Conn, msgChannel chan Message) {
 		}
 
 		n, err := conn.Write(msg.Data)
+		// 总是释放buffer
 		BufferPool2K.Put(msg.Data)
+
 		if err != nil {
 			LOGE("[backend] Write failed: ", uuid, " ", err)
 			return

@@ -32,7 +32,7 @@ func LOGI(v ...interface{}) {
 
 func LOGE(v ...interface{}) {
 	if logLevel <= ERROR {
-		log.Println("[ERROR] ", v)
+		log.Println("[ ERROR] ", v)
 	}
 }
 

@@ -1,5 +1,3 @@
-//go:build windows
-
 package main
 
 import (
@@ -65,7 +63,7 @@ func (s *RelayServer) acceptLoop(ctx context.Context) error {
 			if s.downstreamConn != nil || s.downstreamStatus == StatusConnected {
 				LOGI("[relay] Only one client allowed, rejecting new connection")
 				if err := conn.Close(); err != nil {
-					LOGE("[relay] Only one client allowed, rejecting connection")
+					LOGE("[relay] Failed to close rejected connection: ", err)
 				}
 				s.mu.Unlock()
 				continue
@@ -111,7 +109,7 @@ func (s *RelayServer) receiveLoop(ctx context.Context, conn net.Conn) {
 		s.mu.Unlock()
 
 		if err := conn.Close(); err != nil {
-			LOGI("[relay] Only one client allowed, rejecting connection")
+			LOGE("[relay] Failed to close connection: ", err)
 		}
 		LOGI("[relay] Downstream client disconnected")
 	}()
