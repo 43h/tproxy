@@ -77,7 +77,6 @@ func (app *RelayApp) handleLocalMessage(msg Message) {
 		app.connMgr.Delete(msg.Header.UUID)
 
 	case MsgTypeData:
-		LOGD("[local-msg] Backend data: ", msg.Header.UUID, " length: ", msg.Header.Len)
 		msg.Header.Source = MsgSourceRelay
 		if err := app.server.SendToDownstream(&msg); err != nil {
 			LOGE("[local-msg] Failed to send data message: ", err)
@@ -91,13 +90,11 @@ func (app *RelayApp) handleLocalMessage(msg Message) {
 func (app *RelayApp) handleProxyMessage(msg Message) {
 	switch msg.Header.MsgType {
 	case MsgTypeConnect:
-		LOGI("[proxy-msg] Connect request: ", msg.Header.UUID, " to ", msg.Header.IPStr)
-
 		connInfo := &ConnInfo{
 			UUID:       msg.Header.UUID,
 			IPStr:      msg.Header.IPStr,
 			Status:     StatusDisconnected,
-			MsgChannel: make(chan Message, 1000),
+			MsgChannel: make(chan Message, 10000),
 		}
 		app.connMgr.Add(msg.Header.UUID, connInfo)
 
@@ -107,21 +104,27 @@ func (app *RelayApp) handleProxyMessage(msg Message) {
 		conn, exists := app.connMgr.Get(msg.Header.UUID)
 		if !exists {
 			LOGE("[proxy-msg] Connection not found: ", msg.Header.UUID)
+			BufferPool2K.Put(msg.Data[:0])
 			return
 		}
 
-		if conn.MsgChannel != nil {
-			select {
-			case conn.MsgChannel <- msg:
-				LOGD("[proxy-msg] Data queued: ", msg.Header.UUID, " length: ", msg.Header.Len)
-			default:
-				LOGE("[proxy-msg] Message channel full: ", msg.Header.UUID)
-			}
+		// 将数据放入 MsgChannel，由 handleBackendSend 协程处理
+		// 这样即使连接还在建立中，数据也会被缓存，避免丢包
+		select {
+		case conn.MsgChannel <- msg:
+			LOGD("[proxy-msg] Data queued: ", msg.Header.UUID, " len: ", len(msg.Data))
+		default:
+			LOGE("[proxy-msg] Message channel full, dropping data: ", msg.Header.UUID)
+			BufferPool2K.Put(msg.Data[:0])
 		}
 
 	case MsgTypeDisconnect:
-		LOGD("[proxy-msg] Disconnect: ", msg.Header.UUID)
-		app.connMgr.Delete(msg.Header.UUID)
+		connInfo, exists := app.connMgr.Get(msg.Header.UUID)
+		if !exists {
+			LOGE("[proxy-msg] Connection not found: ", msg.Header.UUID)
+			return
+		}
+		connInfo.Status = StatusDisconnect
 	default:
 		LOGE("[proxy-msg] Unknown message type: ", msg.Header.MsgType)
 	}

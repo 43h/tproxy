@@ -74,7 +74,6 @@ func (app *ProxyApp) handleLocalMessage(msg Message) {
 
 	switch msg.Header.MsgType {
 	case MsgTypeConnect:
-		LOGD("[local-msg] Connect: ", msg.Header.UUID, " ", msg.Header.IPStr)
 		msg.Header.Source = MsgSourceProxy
 		if err := app.upstream.SendMessage(&msg); err != nil {
 			app.connMgr.UpdateStatus(msg.Header.UUID, StatusDisconnect)
@@ -82,7 +81,6 @@ func (app *ProxyApp) handleLocalMessage(msg Message) {
 		}
 
 	case MsgTypeDisconnect:
-		LOGD("[local-msg] Disconnect: ", msg.Header.UUID)
 		connInfo, exists := app.connMgr.Get(msg.Header.UUID)
 		if !exists {
 			LOGE("[upstream-msg] Connection not found: ", msg.Header.UUID)
@@ -97,7 +95,6 @@ func (app *ProxyApp) handleLocalMessage(msg Message) {
 		app.connMgr.Delete(msg.Header.UUID)
 
 	case MsgTypeData:
-		LOGD("[local-msg] Data: ", msg.Header.UUID, " length: ", msg.Header.Len)
 		msg.Header.Source = MsgSourceProxy
 		if err := app.upstream.SendMessage(&msg); err != nil {
 			app.connMgr.UpdateStatus(msg.Header.UUID, StatusDisconnect)
@@ -124,15 +121,16 @@ func (app *ProxyApp) handleRelayMessage(msg Message) {
 			LOGE("[relay-msg] Write failed: ", msg.Header.UUID, " ", err)
 			app.msgBus.AddDisconnectMsg(msg.Header.UUID)
 		} else {
-			LOGD("[relay-msg] Data written: ", msg.Header.UUID, " ", n, " bytes")
+			LOGD("[relay-msg] client<---proxy ", msg.Header.UUID, " sent: ", n)
 		}
+		BufferPool2K.Put(msg.Data[:0])
+		msg.Data = nil
 
 	case MsgTypeDisconnect:
 		LOGD("[relay-msg] Disconnect: ", msg.Header.UUID)
 		conn, exists := app.connMgr.Get(msg.Header.UUID)
 		if exists && conn.Conn != nil {
 			conn.Status = StatusDisconnect
-			LOGI("[relay-msg] Connection closed by relay: ", msg.Header.UUID, " close it later")
 		}
 
 	default:

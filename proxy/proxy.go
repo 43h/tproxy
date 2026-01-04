@@ -11,7 +11,6 @@ import (
 	"time"
 	. "tproxy/common"
 
-	"github.com/google/uuid"
 	"golang.org/x/sys/unix"
 )
 
@@ -107,7 +106,6 @@ func (ps *ProxyServer) acceptLoop(ctx context.Context) error {
 }
 
 func (ps *ProxyServer) handleConnection(conn net.Conn) {
-	// 检查上游连接状态
 	if ps.upstream == nil || !ps.upstream.IsConnected() {
 		LOGE("[proxy] Rejecting connection: upstream not connected")
 		if err := conn.Close(); err != nil {
@@ -125,10 +123,10 @@ func (ps *ProxyServer) handleConnection(conn net.Conn) {
 		return
 	}
 
-	connUUID := uuid.New().String()
 	clientAddr := conn.RemoteAddr().String()
+	connUUID := clientAddr + "->" + origDst + "-" + strconv.FormatInt(time.Now().Unix(), 10)
 
-	LOGI("[proxy] New connection: ", connUUID, " from ", clientAddr, " to ", origDst)
+	LOGI("[proxy] New connection: ", connUUID)
 
 	connInfo := &ConnInfo{
 		UUID:   connUUID,
@@ -139,7 +137,7 @@ func (ps *ProxyServer) handleConnection(conn net.Conn) {
 
 	ps.connMgr.Add(connUUID, connInfo)
 
-	ps.msgBus.AddConnectMsg(connUUID, origDst, nil)
+	ps.msgBus.AddConnectMsg(connUUID, origDst)
 
 	ps.readLoop(connUUID, connInfo)
 }
@@ -156,7 +154,7 @@ func (ps *ProxyServer) readLoop(uuid string, connInfo *ConnInfo) {
 			return
 		}
 
-		if err := connInfo.Conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		if err := connInfo.Conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 			LOGI("[proxy] Set read deadline failed: ", err)
 		}
 
@@ -167,6 +165,7 @@ func (ps *ProxyServer) readLoop(uuid string, connInfo *ConnInfo) {
 			BufferPool2K.Put(buf[:0])
 
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				LOGD("[proxy] Read timeout: ", uuid)
 				continue
 			}
 
@@ -175,12 +174,15 @@ func (ps *ProxyServer) readLoop(uuid string, connInfo *ConnInfo) {
 		}
 
 		if n > 0 {
-			data := buf[:n]
-
-			ps.msgBus.AddDataMsg(uuid, data, n)
-			LOGD("[proxy] Data read: ", uuid, " ", n, " bytes")
+			if n > 16 {
+				LOGD("[proxy] Data preview: ", uuid, " first 8 bytes: ", fmt.Sprintf("%x", buf[:8]), " last 8 bytes: ", fmt.Sprintf("%x", buf[n-8:n]))
+			} else if n > 8 {
+				LOGD("[proxy] Data preview: ", uuid, " first 8 bytes: ", fmt.Sprintf("%x", buf[:8]), " remaining: ", fmt.Sprintf("%x", buf[8:n]))
+			}
+			ps.msgBus.AddDataMsg(uuid, buf[:n], n)
+			LOGD("[proxy] client--->proxy ", uuid, " recv: ", n)
 		} else {
-			BufferPool2K.Put(buf)
+			BufferPool2K.Put(buf[:0])
 		}
 	}
 }

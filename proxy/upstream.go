@@ -21,7 +21,6 @@ type UpstreamClient struct {
 	status     int
 }
 
-// NewUpstreamClient 创建上游客户端
 func NewUpstreamClient(serverAddr string, connMgr *ConnectionManager, msgBus *MessageBus) *UpstreamClient {
 	return &UpstreamClient{
 		serverAddr: serverAddr,
@@ -31,7 +30,6 @@ func NewUpstreamClient(serverAddr string, connMgr *ConnectionManager, msgBus *Me
 	}
 }
 
-// Start 启动上游客户端
 func (c *UpstreamClient) Start(ctx context.Context) error {
 	LOGI("[upstream] Starting client, connecting to: ", c.serverAddr)
 
@@ -46,12 +44,10 @@ func (c *UpstreamClient) Start(ctx context.Context) error {
 				continue
 			}
 
-			// 连接成功，开始接收消息
 			if err := c.receiveLoop(ctx); err != nil {
 				LOGE("[upstream] Receive loop error: ", err)
 			}
 
-			// 连接断开，清理资源
 			c.cleanup()
 		}
 	}
@@ -109,7 +105,6 @@ func (c *UpstreamClient) SendMessage(msg *Message) error {
 		return fmt.Errorf("not connected")
 	}
 
-	// 设置消息来源
 	msg.Header.Source = MsgSourceProxy
 
 	if err := c.writer.WriteMessage(msg); err != nil {
@@ -120,7 +115,6 @@ func (c *UpstreamClient) SendMessage(msg *Message) error {
 	return nil
 }
 
-// cleanup 清理连接资源
 func (c *UpstreamClient) cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -137,12 +131,10 @@ func (c *UpstreamClient) cleanup() {
 	LOGI("[upstream] Connection cleaned up")
 }
 
-// Close 关闭上游连接
 func (c *UpstreamClient) Close() {
 	c.cleanup()
 }
 
-// IsConnected 检查是否已连接
 func (c *UpstreamClient) IsConnected() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
