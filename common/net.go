@@ -33,13 +33,13 @@ func (r *MessageReader) ReadMessage() (*Message, error) {
 	msgBuf := BufferPool2K.Get()
 
 	//read length of header
-	if _, err := io.ReadFull(r.conn, msgBuf[:2]); err != nil {
+	if n, err := io.ReadFull(r.conn, msgBuf[:2]); err != nil || n != 2 {
 		return nil, fmt.Errorf("read length failed: %w", err)
 	}
 	totalLen := binary.BigEndian.Uint16(msgBuf[:2])
 
 	//read header
-	if _, err := io.ReadFull(r.conn, msgBuf[:totalLen]); err != nil {
+	if n, err := io.ReadFull(r.conn, msgBuf[:totalLen]); err != nil || n != int(totalLen) {
 		return nil, fmt.Errorf("read message body failed: %w", err)
 	}
 
@@ -51,7 +51,7 @@ func (r *MessageReader) ReadMessage() (*Message, error) {
 	}
 
 	if msg.Header.Len > 0 {
-		if _, err := io.ReadFull(r.conn, msgBuf[:msg.Header.Len]); err != nil {
+		if n, err := io.ReadFull(r.conn, msgBuf[:msg.Header.Len]); err != nil || n != msg.Header.Len {
 			return nil, fmt.Errorf("read message body failed: %w", err)
 		}
 		msg.Data = msgBuf[:msg.Header.Len]
@@ -77,16 +77,16 @@ func (w *MessageWriter) WriteMessage(msg *Message) error {
 	lengthBuf := [2]byte{}
 	binary.BigEndian.PutUint16(lengthBuf[:], uint16(headerLen))
 
-	if _, err := w.conn.Write(lengthBuf[:]); err != nil {
+	if n, err := w.conn.Write(lengthBuf[:]); err != nil || n != 2 {
 		return fmt.Errorf("write length failed: %w", err)
 	}
 
-	if _, err := w.conn.Write(headerBytes); err != nil {
+	if n, err := w.conn.Write(headerBytes); err != nil || n != headerLen {
 		return fmt.Errorf("write header failed: %w", err)
 	}
 
 	if msg.Header.Len > 0 && len(msg.Data) > 0 {
-		if _, err := w.conn.Write(msg.Data); err != nil {
+		if n, err := w.conn.Write(msg.Data); err != nil || n != len(msg.Data) {
 			return fmt.Errorf("write data failed: %w", err)
 		}
 		BufferPool2K.Put(msg.Data[:0])
