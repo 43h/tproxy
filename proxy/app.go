@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	. "tproxy/common"
 )
 
@@ -41,11 +40,7 @@ func (app *ProxyApp) Run() error {
 
 	go app.handleMessages(app.ctx)
 
-	go func() {
-		if err := app.upstream.Start(app.ctx); err != nil && !errors.Is(err, context.Canceled) {
-			LOGE("Upstream client error: ", err)
-		}
-	}()
+	go app.upstream.Start(app.ctx)
 
 	return app.proxy.Start(app.ctx)
 }
@@ -71,7 +66,6 @@ func (app *ProxyApp) handleMessages(ctx context.Context) {
 }
 
 func (app *ProxyApp) handleLocalMessage(msg Message) {
-
 	switch msg.Header.MsgType {
 	case MsgTypeConnect:
 		msg.Header.Source = MsgSourceProxy
@@ -107,7 +101,6 @@ func (app *ProxyApp) handleLocalMessage(msg Message) {
 }
 
 func (app *ProxyApp) handleRelayMessage(msg Message) {
-
 	switch msg.Header.MsgType {
 	case MsgTypeData:
 		conn, exists := app.connMgr.Get(msg.Header.UUID)
