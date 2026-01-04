@@ -39,8 +39,7 @@ func (cm *ConnectionManager) Add(uuid string, info *ConnInfo) {
 	defer cm.mu.Unlock()
 
 	if _, exists := cm.connections[uuid]; exists {
-		LOGI("Connection UUID conflict, cleaning old connection: ", uuid)
-		cm.Delete(uuid)
+		LOGE("Connection UUID conflict, cleaning old connection: ", uuid)
 	}
 
 	info.Timestamp = time.Now().Unix()
@@ -109,24 +108,4 @@ func (cm *ConnectionManager) Count() int {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 	return len(cm.connections)
-}
-
-func (cm *ConnectionManager) CleanTimeout(timeout int64) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-	now := time.Now().Unix()
-	for uuid, info := range cm.connections {
-		if now-info.Timestamp > timeout {
-			if info.Conn != nil {
-				if err := info.Conn.Close(); err != nil {
-					LOGE("Connection close error:", err)
-				}
-			}
-			if info.MsgChannel != nil {
-				close(info.MsgChannel)
-			}
-			delete(cm.connections, uuid)
-			LOGI("Connection timeout cleaned: ", uuid)
-		}
-	}
 }
