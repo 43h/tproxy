@@ -1,7 +1,5 @@
 package common
 
-import "net"
-
 type MessageType int
 
 type MessageHeader struct {
@@ -24,8 +22,7 @@ const (
 )
 
 const (
-	MsgTypeUnknown MessageType = iota
-	MsgTypeConnect
+	MsgTypeConnect = iota + 1
 	MsgTypeDisconnect
 	MsgTypeData
 )
@@ -48,7 +45,7 @@ func (mb *MessageBus) SendMessage(msg Message) {
 	mb.msgChan <- msg
 }
 
-func (mb *MessageBus) AddConnectMsg(uuid string, ipStr string, conn net.Conn) {
+func (mb *MessageBus) AddConnectMsg(uuid string, ipStr string) {
 	msg := Message{
 		Header: MessageHeader{
 			Source:  MsgSourceLocal,
