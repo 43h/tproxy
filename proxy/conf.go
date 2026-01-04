@@ -25,6 +25,6 @@ func initConf(configFile string) bool {
 		return false
 	}
 
-	LOGI("config: ", ConfigParam)
+	LOGI("[config] ", ConfigParam)
 	return true
 }
