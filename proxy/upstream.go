@@ -30,13 +30,13 @@ func NewUpstreamClient(serverAddr string, connMgr *ConnectionManager, msgBus *Me
 	}
 }
 
-func (c *UpstreamClient) Start(ctx context.Context) error {
+func (c *UpstreamClient) Start(ctx context.Context) {
 	LOGI("[upstream] Starting client, connecting to: ", c.serverAddr)
 
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return
 		default:
 			if err := c.connect(); err != nil {
 				time.Sleep(time.Second * 3)
