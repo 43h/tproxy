@@ -75,7 +75,7 @@ func (s *RelayServer) acceptLoop(ctx context.Context) error {
 			s.downstreamReader = NewMessageReader(conn)
 			s.downstreamWriter = NewMessageWriter(conn)
 			s.downstreamStatus = StatusConnected
-			s.sendChan = make(chan Message, 10000)
+			s.sendChan = make(chan Message, 20000)
 			s.ctx = sendCtx
 			s.cancelSend = cancelSend
 			s.mu.Unlock()

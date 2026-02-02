@@ -18,6 +18,7 @@ type ProxyServer struct {
 	addr     string
 	connMgr  *ConnectionManager
 	msgBus   *MessageBus
+	bufPool  *BufferPool
 	listener net.Listener
 	upstream *UpstreamClient
 	status   int
@@ -99,12 +100,12 @@ func (ps *ProxyServer) acceptLoop(ctx context.Context) error {
 				continue
 			}
 
-			go ps.handleConnection(ctx, conn)
+			go ps.handleConnection(conn)
 		}
 	}
 }
 
-func (ps *ProxyServer) handleConnection(ctx context.Context, conn net.Conn) {
+func (ps *ProxyServer) handleConnection(conn net.Conn) {
 	if ps.upstream == nil || !ps.upstream.IsConnected() {
 		LOGE("[proxy] Rejecting connection: upstream not connected")
 		if err := conn.Close(); err != nil {
@@ -138,51 +139,52 @@ func (ps *ProxyServer) handleConnection(ctx context.Context, conn net.Conn) {
 
 	ps.msgBus.AddConnectMsg(connUUID, origDst)
 
-	ps.readLoop(ctx, connInfo)
+	ps.readLoop(connUUID, connInfo)
 }
 
-func (ps *ProxyServer) readLoop(ctx context.Context, connInfo *ConnInfo) {
-	uuid := connInfo.UUID
+func (ps *ProxyServer) readLoop(uuid string, connInfo *ConnInfo) {
 	defer func() {
 		ps.msgBus.AddDisconnectMsg(uuid)
 		LOGI("[proxy] Connection closed: ", uuid)
 	}()
 
 	for {
-		select {
-		case <-ctx.Done():
+		if connInfo.Status == StatusDisconnect {
+			LOGI("[proxy] close read routine: ", uuid)
 			return
-		default:
-			if connInfo.Status == StatusDisconnect {
-				LOGI("[proxy] close read routine: ", uuid)
-				return
+		}
+
+		// 检查连接是否仍然有效，防止并发删除导致的 nil 指针
+		conn := connInfo.Conn
+		if conn == nil {
+			LOGI("[proxy] Connection is nil, closing read routine: ", uuid)
+			return
+		}
+
+		if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			LOGI("[proxy] Set read deadline failed: ", err)
+		}
+
+		buf := BufferPool2K.Get()
+		n, err := conn.Read(buf)
+
+		if err != nil {
+			BufferPool2K.Put(buf[:0])
+
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				LOGD("[proxy] Read timeout: ", uuid)
+				continue
 			}
 
-			if err := connInfo.Conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-				LOGE("[proxy] Set read deadline failed: ", err)
-			}
+			LOGD("[proxy] Read error: ", uuid, " ", err)
+			return
+		}
 
-			buf := BufferPool2K.Get()
-			n, err := connInfo.Conn.Read(buf)
-
-			if err != nil {
-				BufferPool2K.Put(buf[:0])
-
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					LOGD("[proxy] Read timeout: ", uuid)
-					continue
-				}
-
-				LOGD("[proxy] Read error: ", uuid, " ", err)
-				return
-			}
-
-			if n > 0 {
-				ps.msgBus.AddDataMsg(uuid, buf[:n], n)
-				LOGD("[proxy] client--->proxy ", uuid, " recv: ", n)
-			} else {
-				BufferPool2K.Put(buf[:0])
-			}
+		if n > 0 {
+			ps.msgBus.AddDataMsg(uuid, buf[:n], n)
+			LOGD("[proxy] client--->proxy ", uuid, " recv: ", n)
+		} else {
+			BufferPool2K.Put(buf[:0])
 		}
 	}
 }

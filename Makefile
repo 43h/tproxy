@@ -24,14 +24,16 @@ build: client server
 client:
 	@echo "Building Linux $(CLIENT_BINARY)..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=linux GOARCH=amd64 go build -gcflags "all=-N -l" -o $(BUILD_DIR)/$(CLIENT_BINARY) ./proxy
+	@GOOS=linux GOARCH=amd64 go build -gcflags "all=-N -l" -o $(BUILD_DIR)/$(CLIENT_BINARY) ./proxy
+	@cp proxy/conf.yaml $(BUILD_DIR)/
 	@echo "$(CLIENT_BINARY) built successfully"
+
 
 # Build Windows server
 server:
 	@echo "Building Windows $(SERVER_BINARY)..."
 	@mkdir -p $(BUILD_DIR)
-	GOOS=windows GOARCH=amd64 go build -ldflags="$(LDFLAGS)" -o $(BUILD_DIR)/$(SERVER_BINARY).exe ./relay
+	@GOOS=windows GOARCH=amd64 go build -gcflags "all=-N -l" -o $(BUILD_DIR)/$(SERVER_BINARY).exe ./relay
 	@echo "$(SERVER_BINARY).exe built successfully"
 
 # Build with debug symbols
@@ -67,8 +69,13 @@ test:
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
-	@rm -rf $(BUILD_DIR)
+	@rm -rf $(BUILD_DIR)/*
 	@echo "Clean completed"
+
+cleanall:
+	@echo "Cleaning all build artifacts..."
+	@rm -rf $(BUILD_DIR)
+	@echo "All clean completed"
 
 # Install dependencies
 install:

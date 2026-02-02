@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	. "tproxy/common"
 )
 
@@ -40,7 +41,11 @@ func (app *ProxyApp) Run() error {
 
 	go app.handleMessages(app.ctx)
 
-	go app.upstream.Start(app.ctx)
+	go func() {
+		if err := app.upstream.Start(app.ctx); err != nil && !errors.Is(err, context.Canceled) {
+			LOGE("Upstream client error: ", err)
+		}
+	}()
 
 	return app.proxy.Start(app.ctx)
 }

@@ -16,7 +16,7 @@ type RelayApp struct {
 
 func NewRelayApp(config *Config) *RelayApp {
 	connMgr := NewConnectionManager()
-	msgBus := NewMessageBus(10000)
+	msgBus := NewMessageBus(20000)
 	ctx, cancel := context.WithCancel(context.Background())
 	server := NewRelayServer(config.Listen, connMgr, msgBus)
 
