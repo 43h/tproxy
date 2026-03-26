@@ -7,11 +7,13 @@ import (
 )
 
 type Config struct {
-	Listen string `yaml:"listen"` //local listen
-	Server string `yaml:"server"` //remote server
+	Listen         string   `yaml:"listen"`          //local listen
+	Server         string   `yaml:"server"`          //remote server
+	Webhook        string   `yaml:"webhook"`         //企业微信 Webhook
+	WebhookMention []string `yaml:"webhook_mention"` //告警@人员列表
 }
 
-var ConfigParam = Config{"", ""}
+var ConfigParam = Config{}
 
 func initConf(configFile string) bool {
 	data := LoadConf(configFile)

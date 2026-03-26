@@ -2,31 +2,34 @@ package main
 
 import (
 	"context"
+	"time"
 	. "tproxy/common"
 )
 
 type RelayApp struct {
-	config  *Config
-	connMgr *ConnectionManager
-	msgBus  *MessageBus
-	server  *RelayServer
-	ctx     context.Context
-	cancel  context.CancelFunc
+	config     *Config
+	connMgr    *ConnectionManager
+	msgBus     *MessageBus
+	server     *RelayServer
+	vpnMonitor *VpnMonitor
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 func NewRelayApp(config *Config) *RelayApp {
 	connMgr := NewConnectionManager()
-	msgBus := NewMessageBus(20000)
+	msgBus := NewMessageBus(2048)
 	ctx, cancel := context.WithCancel(context.Background())
-	server := NewRelayServer(config.Listen, connMgr, msgBus)
+	server := NewRelayServer(config.Listen, config.Webhook, connMgr, msgBus)
 
 	return &RelayApp{
-		config:  config,
-		connMgr: connMgr,
-		msgBus:  msgBus,
-		server:  server,
-		ctx:     ctx,
-		cancel:  cancel,
+		config:     config,
+		connMgr:    connMgr,
+		msgBus:     msgBus,
+		server:     server,
+		vpnMonitor: NewVpnMonitor(config.Webhook, config.VpnCheckInterval),
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 }
 
@@ -35,6 +38,8 @@ func (app *RelayApp) Run() error {
 	LOGI("Listen Address: ", app.config.Listen)
 
 	go app.handleMessages(app.ctx)
+	go app.vpnMonitor.Start(app.ctx)
+	go app.statsMonitor(app.ctx)
 
 	return app.server.Start(app.ctx)
 }
@@ -98,7 +103,7 @@ func (app *RelayApp) handleProxyMessage(msg Message) {
 			UUID:       msg.Header.UUID,
 			IPStr:      msg.Header.IPStr,
 			Status:     StatusDisconnected,
-			MsgChannel: make(chan Message, 10000),
+			MsgChannel: make(chan Message, 256),
 		}
 		app.connMgr.Add(msg.Header.UUID, connInfo)
 
@@ -139,6 +144,18 @@ func (app *RelayApp) handleProxyMessage(msg Message) {
 		connInfo.Status = StatusDisconnect
 	default:
 		LOGE("[proxy-msg] Unknown message type: ", msg.Header.MsgType)
+	}
+}
+
+func (app *RelayApp) statsMonitor(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+			LOGI("[stats] msgBus: ", app.msgBus.QueueLen(), "/", app.msgBus.QueueCap(),
+				" sendChan: ", app.server.SendQueueLen(), "/", app.server.SendQueueCap())
+		}
 	}
 }
 

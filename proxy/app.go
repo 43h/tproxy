@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"time"
 	. "tproxy/common"
 )
 
@@ -18,9 +19,9 @@ type ProxyApp struct {
 
 func NewProxyApp(config *Config) *ProxyApp {
 	connMgr := NewConnectionManager()
-	msgBus := NewMessageBus(10000)
+	msgBus := NewMessageBus(2048)
 	ctx, cancel := context.WithCancel(context.Background())
-	upstream := NewUpstreamClient(config.Server, connMgr, msgBus)
+	upstream := NewUpstreamClient(config.Server, config.Webhook, connMgr, msgBus)
 	proxy := NewProxyServer(config.Listen, connMgr, msgBus, upstream)
 
 	return &ProxyApp{
@@ -40,6 +41,7 @@ func (app *ProxyApp) Run() error {
 	LOGI("Upstream Server: ", app.config.Server)
 
 	go app.handleMessages(app.ctx)
+	go app.statsMonitor(app.ctx)
 
 	go func() {
 		if err := app.upstream.Start(app.ctx); err != nil && !errors.Is(err, context.Canceled) {
@@ -148,6 +150,17 @@ func (app *ProxyApp) handleRelayMessage(msg Message) {
 
 	default:
 		LOGE("[relay-msg] Unknown message type: ", msg.Header.MsgType)
+	}
+}
+
+func (app *ProxyApp) statsMonitor(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+			LOGI("[stats] msgBus: ", app.msgBus.QueueLen(), "/", app.msgBus.QueueCap())
+		}
 	}
 }
 

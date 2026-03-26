@@ -1,2 +1,10 @@
 #本地监听
-listen: "192.168.2.2:8080"
+listen: "192.168.3.251:8080"
+#企业微信机器人 Webhook（配置即开启告警，注释或留空则关闭）
+webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"
+#告警@人员列表（企业微信userid，支持多人，留空则不@）
+#webhook_mention:
+#  - "zhangsan"
+#  - "@all"
+#IP检测间隔(秒)
+check_interval: 30

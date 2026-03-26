@@ -7,10 +7,13 @@ import (
 )
 
 type Config struct {
-	Listen string `yaml:"listen"`
+	Listen           string   `yaml:"listen"`
+	Webhook          string   `yaml:"webhook"`
+	WebhookMention   []string `yaml:"webhook_mention"`
+	VpnCheckInterval int      `yaml:"check_interval"`
 }
 
-var ConfigParam = Config{""}
+var ConfigParam = Config{}
 
 func initConf(configFile string) bool {
 	data := LoadConf(configFile)

@@ -41,6 +41,14 @@ func (mb *MessageBus) GetMessageChannel() <-chan Message {
 	return mb.msgChan
 }
 
+func (mb *MessageBus) QueueLen() int {
+	return len(mb.msgChan)
+}
+
+func (mb *MessageBus) QueueCap() int {
+	return cap(mb.msgChan)
+}
+
 func (mb *MessageBus) SendMessage(msg Message) {
 	mb.msgChan <- msg
 }

@@ -24,11 +24,13 @@ func main() {
 	if !InitLog(*logDebug) {
 		return
 	}
+	DebugMode = *logDebug
 	defer CloseLog()
 
 	if !initConf(*configFile) {
 		return
 	}
+	WebhookMention = ConfigParam.WebhookMention
 
 	app := NewRelayApp(&ConfigParam)
 

@@ -9,10 +9,11 @@ import (
 )
 
 type RelayServer struct {
-	addr     string
-	connMgr  *ConnectionManager
-	msgBus   *MessageBus
-	listener net.Listener
+	addr       string
+	webhookURL string
+	connMgr    *ConnectionManager
+	msgBus     *MessageBus
+	listener   net.Listener
 
 	mu               sync.RWMutex
 	downstreamConn   net.Conn
@@ -24,9 +25,10 @@ type RelayServer struct {
 	cancelSend       context.CancelFunc
 }
 
-func NewRelayServer(addr string, connMgr *ConnectionManager, msgBus *MessageBus) *RelayServer {
+func NewRelayServer(addr string, webhookURL string, connMgr *ConnectionManager, msgBus *MessageBus) *RelayServer {
 	return &RelayServer{
 		addr:             addr,
+		webhookURL:       webhookURL,
 		connMgr:          connMgr,
 		msgBus:           msgBus,
 		downstreamStatus: StatusDisconnected,
@@ -75,7 +77,7 @@ func (s *RelayServer) acceptLoop(ctx context.Context) error {
 			s.downstreamReader = NewMessageReader(conn)
 			s.downstreamWriter = NewMessageWriter(conn)
 			s.downstreamStatus = StatusConnected
-			s.sendChan = make(chan Message, 20000)
+			s.sendChan = make(chan Message, 4096)
 			s.ctx = sendCtx
 			s.cancelSend = cancelSend
 			s.mu.Unlock()
@@ -89,6 +91,7 @@ func (s *RelayServer) acceptLoop(ctx context.Context) error {
 }
 
 func (s *RelayServer) receiveLoop(ctx context.Context, conn net.Conn) {
+
 	defer func() {
 		s.mu.Lock()
 
@@ -121,6 +124,8 @@ func (s *RelayServer) receiveLoop(ctx context.Context, conn net.Conn) {
 			s.connMgr.Delete(uuid)
 		}
 		LOGI("[relay] Downstream client disconnected, cleaned up ", len(uuids), " backend connections")
+
+		SendWechatNotify(s.webhookURL, "提示: 客户端服务掉线")
 	}()
 
 	for {
@@ -180,6 +185,7 @@ func (s *RelayServer) SendToDownstream(msg *Message) error {
 	s.mu.RLock()
 	status := s.downstreamStatus
 	sendChan := s.sendChan
+	ctx := s.ctx
 	s.mu.RUnlock()
 
 	if status != StatusConnected || sendChan == nil {
@@ -190,9 +196,27 @@ func (s *RelayServer) SendToDownstream(msg *Message) error {
 	case sendChan <- *msg:
 		LOGD("[relay] Message queued for downstream: ", msg.Header.MsgType, " UUID: ", msg.Header.UUID)
 		return nil
-	default:
-		return fmt.Errorf("send channel full")
+	case <-ctx.Done():
+		return fmt.Errorf("downstream disconnected")
 	}
+}
+
+func (s *RelayServer) SendQueueLen() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.sendChan == nil {
+		return 0
+	}
+	return len(s.sendChan)
+}
+
+func (s *RelayServer) SendQueueCap() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.sendChan == nil {
+		return 0
+	}
+	return cap(s.sendChan)
 }
 
 func (s *RelayServer) Close() {

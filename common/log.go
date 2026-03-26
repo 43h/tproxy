@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ const (
 	ERROR
 )
 
-var logLevel = INFO
+var logLevel = ERROR
 var logHandle *os.File
 
 func LOGD(v ...interface{}) {
@@ -41,18 +42,29 @@ func InitLog(debug bool) bool {
 
 	if debug == true { //debug mode
 		logLevel = DEBUG
+		fileName := time.Now().Format("2006-01-02-15-04-05") + ".log"
+		var err error
+		logHandle, err = os.OpenFile(fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+		if err != nil {
+			fmt.Println("fail to open log file in debug mode: ", err)
+			log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+			return true
+		}
+		log.SetOutput(io.MultiWriter(os.Stdout, logHandle))
+		log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 		return true
 	}
 
 	fileName := time.Now().Format("2006-01-02-15-04-05") + ".log"
-	logHandle, err := os.OpenFile(fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+	var err error
+	logHandle, err = os.OpenFile(fileName, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		fmt.Println("fail to open file, ", err)
 		return false
 	}
 
 	log.SetOutput(logHandle)
-	log.SetFlags(log.Lshortfile | log.LstdFlags)
+	log.SetFlags(log.Lshortfile | log.LstdFlags | log.Lmicroseconds)
 	return true
 }
 

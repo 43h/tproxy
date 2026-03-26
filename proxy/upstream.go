@@ -11,6 +11,7 @@ import (
 
 type UpstreamClient struct {
 	serverAddr string
+	webhookURL string
 	connMgr    *ConnectionManager
 	msgBus     *MessageBus
 	bufPool    *BufferPool
@@ -19,11 +20,13 @@ type UpstreamClient struct {
 	reader     *MessageReader
 	writer     *MessageWriter
 	status     int
+	notified   bool // relay 断线通知标志
 }
 
-func NewUpstreamClient(serverAddr string, connMgr *ConnectionManager, msgBus *MessageBus) *UpstreamClient {
+func NewUpstreamClient(serverAddr string, webhookURL string, connMgr *ConnectionManager, msgBus *MessageBus) *UpstreamClient {
 	return &UpstreamClient{
 		serverAddr: serverAddr,
+		webhookURL: webhookURL,
 		connMgr:    connMgr,
 		msgBus:     msgBus,
 		status:     StatusDisconnected,
@@ -49,6 +52,9 @@ func (c *UpstreamClient) Start(ctx context.Context) error {
 				continue
 			}
 
+			// 连接成功，重置通知标志
+			c.notified = false
+
 			if err := c.receiveLoop(ctx); err != nil {
 				LOGE("[upstream] Receive loop error: ", err)
 			}
@@ -57,6 +63,12 @@ func (c *UpstreamClient) Start(ctx context.Context) error {
 
 			// relay 断开后，清理所有本地连接，使 readLoop goroutine 立即退出
 			c.cleanupAllConnections()
+
+			// relay 断线通知（仅通知一次）
+			if !c.notified {
+				c.notified = true
+				SendWechatNotify(c.webhookURL, "提示: 服务端掉线")
+			}
 		}
 	}
 }
