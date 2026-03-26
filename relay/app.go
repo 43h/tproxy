@@ -65,7 +65,7 @@ func (app *RelayApp) handleLocalMessage(msg Message) {
 		LOGD("[local-msg] Backend disconnected: ", msg.Header.UUID)
 		connInfo, exists := app.connMgr.Get(msg.Header.UUID)
 		if !exists {
-			LOGE("[upstream-msg] Connection not found: ", msg.Header.UUID)
+			LOGD("[local-msg] Connection already removed: ", msg.Header.UUID)
 			return
 		}
 		if connInfo.Status == StatusConnected {
@@ -79,6 +79,10 @@ func (app *RelayApp) handleLocalMessage(msg Message) {
 	case MsgTypeData:
 		msg.Header.Source = MsgSourceRelay
 		if err := app.server.SendToDownstream(&msg); err != nil {
+			if msg.Data != nil {
+				BufferPool2K.Put(msg.Data[:0])
+				msg.Data = nil
+			}
 			LOGE("[local-msg] Failed to send data message: ", err)
 		}
 
@@ -108,10 +112,18 @@ func (app *RelayApp) handleProxyMessage(msg Message) {
 			return
 		}
 
+		// 捕获本地变量，防止并发 Delete 关闭/置 nil 通道导致 panic
+		ch := conn.MsgChannel
+		if ch == nil {
+			LOGE("[proxy-msg] MsgChannel is nil: ", msg.Header.UUID)
+			BufferPool2K.Put(msg.Data[:0])
+			return
+		}
+
 		// 将数据放入 MsgChannel，由 handleBackendSend 协程处理
 		// 这样即使连接还在建立中，数据也会被缓存，避免丢包
 		select {
-		case conn.MsgChannel <- msg:
+		case ch <- msg:
 			LOGD("[proxy-msg] Data queued: ", msg.Header.UUID, " len: ", len(msg.Data))
 		default:
 			LOGE("[proxy-msg] Message channel full, dropping data: ", msg.Header.UUID)
@@ -142,9 +154,14 @@ func (app *RelayApp) Shutdown() {
 		app.server.Close()
 	}
 
+	// 先收集 UUID，再逐个删除，避免 ForEach(RLock) 内调用 Delete(Lock) 导致死锁
+	var uuids []string
 	app.connMgr.ForEach(func(uuid string, info *ConnInfo) {
-		app.connMgr.Delete(uuid)
+		uuids = append(uuids, uuid)
 	})
+	for _, uuid := range uuids {
+		app.connMgr.Delete(uuid)
+	}
 
 	LOGI("=== Shutdown Complete ===")
 }

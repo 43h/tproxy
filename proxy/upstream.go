@@ -39,8 +39,13 @@ func (c *UpstreamClient) Start(ctx context.Context) error {
 			return ctx.Err()
 		default:
 			if err := c.connect(); err != nil {
-				time.Sleep(time.Second * 3)
 				LOGI("[upstream] Connect failed: ", err)
+				// 使用 select 等待，使 sleep 可被 ctx 取消中断
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(3 * time.Second):
+				}
 				continue
 			}
 
@@ -49,6 +54,9 @@ func (c *UpstreamClient) Start(ctx context.Context) error {
 			}
 
 			c.cleanup()
+
+			// relay 断开后，清理所有本地连接，使 readLoop goroutine 立即退出
+			c.cleanupAllConnections()
 		}
 	}
 }
@@ -129,6 +137,19 @@ func (c *UpstreamClient) cleanup() {
 	c.status = StatusDisconnected
 
 	LOGI("[upstream] Connection cleaned up")
+}
+
+func (c *UpstreamClient) cleanupAllConnections() {
+	var uuids []string
+	c.connMgr.ForEach(func(uuid string, info *ConnInfo) {
+		uuids = append(uuids, uuid)
+	})
+	for _, uuid := range uuids {
+		c.connMgr.Delete(uuid)
+	}
+	if len(uuids) > 0 {
+		LOGI("[upstream] Upstream disconnected, cleaned up ", len(uuids), " local connections")
+	}
 }
 
 func (c *UpstreamClient) Close() {

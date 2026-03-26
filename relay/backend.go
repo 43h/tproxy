@@ -52,9 +52,8 @@ func connectToBackend(uuid string, serverAddr string, msgBus *MessageBus, connMg
 			return
 		}
 
-		// 获取初始buffer，在循环中复用，仅在读到数据后才重新获取
 		buf := BufferPool2K.Get()
-		LOGD("[backend] backend--->server ", uuid, " waiting for data...")
+		//LOGD("[backend] backend<---server ", uuid, " waiting for data...")
 		n, err := conn.Read(buf)
 
 		// 错误处理
@@ -85,19 +84,14 @@ func connectToBackend(uuid string, serverAddr string, msgBus *MessageBus, connMg
 			msgBus.AddDataMsg(uuid, buf[:n], n)
 			LOGD("[backend] backend<---server ", uuid, " recv: ", n)
 		} else {
-			// 获取新的buffer用于下次读取
-			buf = BufferPool2K.Get()
+			BufferPool2K.Put(buf[:0])
 		}
 	}
 }
 
 func handleBackendSend(uuid string, conn net.Conn, msgChannel chan Message) {
-	defer func() {
-		if err := conn.Close(); err != nil {
-			LOGE("[backend] Close failed: ", uuid, " ", err)
-		}
-		LOGI("[backend] Send loop ended: ", uuid)
-	}()
+	// 连接生命周期由 connMgr.Delete() 管理，此处不再 Close
+	defer LOGI("[backend] Send loop ended: ", uuid)
 
 	for msg := range msgChannel {
 		if msg.Header.MsgType != MsgTypeData {

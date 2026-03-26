@@ -111,7 +111,16 @@ func (s *RelayServer) receiveLoop(ctx context.Context, conn net.Conn) {
 		if err := conn.Close(); err != nil {
 			LOGE("[relay] Failed to close connection: ", err)
 		}
-		LOGI("[relay] Downstream client disconnected")
+
+		// proxy 断开后，清理所有 backend 连接，使后端 goroutine 立即退出
+		var uuids []string
+		s.connMgr.ForEach(func(uuid string, info *ConnInfo) {
+			uuids = append(uuids, uuid)
+		})
+		for _, uuid := range uuids {
+			s.connMgr.Delete(uuid)
+		}
+		LOGI("[relay] Downstream client disconnected, cleaned up ", len(uuids), " backend connections")
 	}()
 
 	for {

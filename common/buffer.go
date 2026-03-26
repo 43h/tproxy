@@ -28,11 +28,12 @@ func NewBufPool(bufSize BufSize) *BufferPool {
 }
 
 func (bp *BufferPool) Get() []byte {
-	return bp.pool.Get().([]byte)
+	buf := bp.pool.Get().([]byte)
+	return buf[:cap(buf)] // 确保返回完整长度，防止 Put(buf[:0]) 后 Get 到零长度 buffer
 }
 
 func (bp *BufferPool) Put(buf []byte) {
-	bp.pool.Put(buf)
+	bp.pool.Put(buf[:cap(buf)]) // 归还时恢复完整长度
 }
 
 func (bp *BufferPool) getBufSize() int {

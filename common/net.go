@@ -52,9 +52,12 @@ func (r *MessageReader) ReadMessage() (*Message, error) {
 
 	if msg.Header.Len > 0 {
 		if n, err := io.ReadFull(r.conn, msgBuf[:msg.Header.Len]); err != nil || n != msg.Header.Len {
+			BufferPool2K.Put(msgBuf[:0])
 			return nil, fmt.Errorf("read message body failed: %w", err)
 		}
 		msg.Data = msgBuf[:msg.Header.Len]
+	} else {
+		BufferPool2K.Put(msgBuf[:0])
 	}
 
 	return &msg, nil

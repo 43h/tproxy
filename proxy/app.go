@@ -82,7 +82,7 @@ func (app *ProxyApp) handleLocalMessage(msg Message) {
 	case MsgTypeDisconnect:
 		connInfo, exists := app.connMgr.Get(msg.Header.UUID)
 		if !exists {
-			LOGE("[upstream-msg] Connection not found: ", msg.Header.UUID)
+			LOGD("[local-msg] Connection already removed: ", msg.Header.UUID)
 			return
 		}
 		if connInfo.Status == StatusConnected {
@@ -96,6 +96,10 @@ func (app *ProxyApp) handleLocalMessage(msg Message) {
 	case MsgTypeData:
 		msg.Header.Source = MsgSourceProxy
 		if err := app.upstream.SendMessage(&msg); err != nil {
+			if msg.Data != nil {
+				BufferPool2K.Put(msg.Data[:0])
+				msg.Data = nil
+			}
 			app.connMgr.UpdateStatus(msg.Header.UUID, StatusDisconnect)
 			LOGE("[local-msg] Failed to send data message: ", err)
 		}
@@ -111,10 +115,21 @@ func (app *ProxyApp) handleRelayMessage(msg Message) {
 		conn, exists := app.connMgr.Get(msg.Header.UUID)
 		if !exists {
 			LOGE("[relay-msg] Connection not found: ", msg.Header.UUID)
+			BufferPool2K.Put(msg.Data[:0])
+			msg.Data = nil
 			return
 		}
 
-		n, err := conn.Conn.Write(msg.Data)
+		// 捕获本地变量，防止并发 Delete 将 Conn 置 nil 导致空指针
+		c := conn.Conn
+		if c == nil {
+			LOGE("[relay-msg] Connection is nil: ", msg.Header.UUID)
+			BufferPool2K.Put(msg.Data[:0])
+			msg.Data = nil
+			return
+		}
+
+		n, err := c.Write(msg.Data)
 		if err != nil {
 			LOGE("[relay-msg] Write failed: ", msg.Header.UUID, " ", err)
 			app.msgBus.AddDisconnectMsg(msg.Header.UUID)
@@ -151,9 +166,14 @@ func (app *ProxyApp) Shutdown() {
 		app.proxy.Close()
 	}
 
+	// 先收集 UUID，再逐个删除，避免 ForEach(RLock) 内调用 Delete(Lock) 导致死锁
+	var uuids []string
 	app.connMgr.ForEach(func(uuid string, info *ConnInfo) {
-		app.connMgr.Delete(uuid)
+		uuids = append(uuids, uuid)
 	})
+	for _, uuid := range uuids {
+		app.connMgr.Delete(uuid)
+	}
 
 	LOGI("=== Shutdown Complete ===")
 }
