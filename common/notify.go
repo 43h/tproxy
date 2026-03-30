@@ -42,7 +42,12 @@ func SendWechatNotify(webhookURL, content string) {
 			return
 		}
 
-		client := &http.Client{Timeout: 5 * time.Second}
+		client := &http.Client{
+			Timeout: 15 * time.Second,
+			Transport: &http.Transport{
+				DisableKeepAlives: true,
+			},
+		}
 		resp, err := client.Post(webhookURL, "application/json", bytes.NewReader(body))
 		if err != nil {
 			LOGE("[notify] Send failed: ", err)

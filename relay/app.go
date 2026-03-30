@@ -103,7 +103,7 @@ func (app *RelayApp) handleProxyMessage(msg Message) {
 			UUID:       msg.Header.UUID,
 			IPStr:      msg.Header.IPStr,
 			Status:     StatusDisconnected,
-			MsgChannel: make(chan Message, 256),
+			MsgChannel: make(chan Message, 4096),
 		}
 		app.connMgr.Add(msg.Header.UUID, connInfo)
 
@@ -126,13 +126,12 @@ func (app *RelayApp) handleProxyMessage(msg Message) {
 		}
 
 		// 将数据放入 MsgChannel，由 handleBackendSend 协程处理
-		// 这样即使连接还在建立中，数据也会被缓存，避免丢包
-		select {
-		case ch <- msg:
-			LOGD("[proxy-msg] Data queued: ", msg.Header.UUID, " len: ", len(msg.Data))
-		default:
-			LOGE("[proxy-msg] Message channel full, dropping data: ", msg.Header.UUID)
+		// 先尝试非阻塞发送，通道满时改为阻塞+超时，提供背压而不是直接丢数据
+		if !safeSendMsg(ch, msg) {
+			LOGE("[proxy-msg] Message send failed (channel full or closed): ", msg.Header.UUID)
 			BufferPool2K.Put(msg.Data[:0])
+		} else {
+			LOGD("[proxy-msg] Data queued: ", msg.Header.UUID, " len: ", len(msg.Data))
 		}
 
 	case MsgTypeDisconnect:
@@ -144,6 +143,33 @@ func (app *RelayApp) handleProxyMessage(msg Message) {
 		connInfo.Status = StatusDisconnect
 	default:
 		LOGE("[proxy-msg] Unknown message type: ", msg.Header.MsgType)
+	}
+}
+
+// safeSendMsg 安全地向通道发送消息，先尝试非阻塞，通道满时阻塞等待（最多30秒）
+// 使用 recover 防护并发 Delete 关闭通道导致的 panic
+func safeSendMsg(ch chan Message, msg Message) (sent bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			sent = false
+		}
+	}()
+
+	// 非阻塞尝试
+	select {
+	case ch <- msg:
+		return true
+	default:
+	}
+
+	// 通道满，阻塞等待（提供背压）
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+	select {
+	case ch <- msg:
+		return true
+	case <-timer.C:
+		return false
 	}
 }
 
