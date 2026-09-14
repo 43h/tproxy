@@ -1,0 +1,17 @@
+[Unit]
+Description=tproxy transparent proxy client
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=@BIN_DIR@
+ExecStart="@BIN_DIR@/client" -c conf.yaml
+# The client can exit with status 0 after a startup/runtime error.
+Restart=always
+RestartSec=5s
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=multi-user.target
